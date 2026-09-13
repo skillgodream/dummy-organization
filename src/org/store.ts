@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { Redis } from '@upstash/redis';
 import { Employee, Shift, TaskLog, Observation, OrgEvent, LabDayRecord } from './models.js';
 
 export interface StoreSnapshot {
@@ -26,6 +27,8 @@ export class OrgStore {
   public labRecords: LabDayRecord[] = [];
 
   private storageFilePath: string = path.resolve(process.cwd(), '.data', 'deancore_store.json');
+  private savePromise: Promise<void> | null = null;
+  private isSavePending: boolean = false;
 
   constructor() {
     this.loadSync();
@@ -55,20 +58,23 @@ export class OrgStore {
   }
 
   public async load(): Promise<void> {
+    if (this.savePromise) {
+      await this.savePromise;
+    }
+
     const kv = this.getKvConfig();
     if (kv) {
       try {
-        const endpoint = `${kv.url.replace(/\/$/, '')}/get/deancore_org_store`;
-        const res = await fetch(endpoint, {
-          headers: {
-            Authorization: `Bearer ${kv.token}`
+        const redis = new Redis({ url: kv.url, token: kv.token });
+        const raw = await redis.get<StoreSnapshot | string>('deancore_org_store');
+        if (raw) {
+          let snapshot: StoreSnapshot | null = null;
+          if (typeof raw === 'string') {
+            snapshot = JSON.parse(raw);
+          } else if (typeof raw === 'object') {
+            snapshot = raw as StoreSnapshot;
           }
-        });
-        if (res.ok) {
-          const body = await res.json();
-          const rawResult = body.result;
-          if (rawResult) {
-            const snapshot: StoreSnapshot = typeof rawResult === 'string' ? JSON.parse(rawResult) : rawResult;
+          if (snapshot) {
             this.applySnapshot(snapshot);
             return;
           }
@@ -82,35 +88,46 @@ export class OrgStore {
   }
 
   public async save(): Promise<void> {
-    const snapshot = this.getSnapshot();
-
-    // 1. Sync to disk file for local fallback & dev persistence
-    try {
-      const dir = path.dirname(this.storageFilePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+    if (this.savePromise) {
+      this.isSavePending = true;
+      await this.savePromise;
+      if (this.isSavePending) {
+        return this.save();
       }
-      fs.writeFileSync(this.storageFilePath, JSON.stringify(snapshot, null, 2), 'utf-8');
-    } catch (e) {
-      // Ignore filesystem write errors on read-only serverless filesystems
+      return;
     }
 
-    // 2. Sync to Vercel KV REST API if configured
-    const kv = this.getKvConfig();
-    if (kv) {
+    this.savePromise = (async () => {
+      this.isSavePending = false;
+      const snapshot = this.getSnapshot();
+
+      // 1. Sync to disk file for local fallback & dev persistence
       try {
-        const endpoint = `${kv.url.replace(/\/$/, '')}/set/deancore_org_store`;
-        await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${kv.token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(JSON.stringify(snapshot))
-        });
+        const dir = path.dirname(this.storageFilePath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        fs.writeFileSync(this.storageFilePath, JSON.stringify(snapshot, null, 2), 'utf-8');
       } catch (e) {
-        console.warn('Failed to save store to Vercel KV:', e);
+        // Ignore filesystem write errors on read-only serverless filesystems
       }
+
+      // 2. Sync to Vercel KV REST API if configured
+      const kv = this.getKvConfig();
+      if (kv) {
+        try {
+          const redis = new Redis({ url: kv.url, token: kv.token });
+          await redis.set('deancore_org_store', snapshot);
+        } catch (e) {
+          console.warn('Failed to save store to Vercel KV:', e);
+        }
+      }
+    })();
+
+    try {
+      await this.savePromise;
+    } finally {
+      this.savePromise = null;
     }
   }
 

@@ -107,4 +107,26 @@ describe('Simulator Production Persistence Failure & Recovery Tests', () => {
     const amitRecords = freshStore.labRecords.filter(r => r.employeeId === 'EMP-003');
     assert.strictEqual(amitRecords.length, 5, 'Pre-feed 5 days must survive reinitialization');
   });
+
+  it('verifies Priya (EMP-002) Pre-feed Days 0-4 end-to-end persistence and retrieval', async () => {
+    // 1. Generate prefeed records for Priya (EMP-002) for 5 days
+    const priyaRecords = generatePrefeedRecords('EMP-002', 5, 'Medium');
+    assert.strictEqual(priyaRecords.length, 5);
+
+    for (const r of priyaRecords) {
+      orgStore.upsertLabRecord(r);
+    }
+    await orgStore.save();
+
+    // 2. Cold start / reinitialize store
+    const freshStore = new OrgStore();
+    await freshStore.load();
+
+    // 3. Verify Days 0, 1, 2, 3, 4 records exist for EMP-002
+    const fetchedRecords = freshStore.labRecords.filter(r => r.employeeId === 'EMP-002');
+    assert.strictEqual(fetchedRecords.length, 5, 'Priya must have exactly 5 pre-feed records');
+
+    const journeyDays = fetchedRecords.map(r => r.journeyDay).sort((a, b) => a - b);
+    assert.deepStrictEqual(journeyDays, [0, 1, 2, 3, 4], 'Priya journey days must be 0, 1, 2, 3, 4');
+  });
 });
