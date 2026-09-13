@@ -8,50 +8,42 @@ import { Simulator } from './ui/Simulator.js';
 import { EvidenceViewer } from './ui/EvidenceViewer.js';
 import { LabHome } from './ui/LabHome.js';
 import { EvaluationLab } from './ui/EvaluationLab.js';
+import { LoginPage } from './components/LoginPage.js';
+import { BottomNav } from './components/BottomNav.js';
+import { Home } from './pages/Home.js';
+import { orgStore } from './org/store.js';
 
 export default function App() {
-  const [view, setView] = useState<'lab' | 'simulator' | 'evidence' | 'eval'>('eval');
+  const [view, setView] = useState<'home' | 'lab' | 'ai7' | 'cancincal'>('home');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  const handleLogin = (username: string) => {
+    orgStore.setUser(username);
+    setIsLoggedIn(true);
+  };
+
+  if (!isLoggedIn) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
 
   return (
-    <div className="flex flex-col min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-4 pt-3.5 pb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sticky top-0 z-30 shadow-xs">
-        <div className="flex items-center justify-between w-full sm:w-auto">
-          <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900">Check-in Evidence Platform</h1>
-        </div>
-        <nav className="flex gap-1.5 sm:gap-2 items-center overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
-          <button 
-            className={`min-h-[44px] px-3.5 py-2 text-xs sm:text-sm font-medium rounded-xl transition-all whitespace-nowrap active:scale-95 ${view === 'eval' ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100/80 text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'}`}
-            onClick={() => setView('eval')}
-          >
-            AI-7 Eval Lab
-          </button>
-          <button 
-            className={`min-h-[44px] px-3.5 py-2 text-xs sm:text-sm font-medium rounded-xl transition-all whitespace-nowrap active:scale-95 ${view === 'lab' ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100/80 text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'}`}
-            onClick={() => setView('lab')}
-          >
-            Dean Lab
-          </button>
-          <button 
-            className={`min-h-[44px] px-3.5 py-2 text-xs sm:text-sm font-medium rounded-xl transition-all whitespace-nowrap active:scale-95 ${view === 'evidence' ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100/80 text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'}`}
-            onClick={() => setView('evidence')}
-          >
-            Canonical Evidence
-          </button>
-          <button 
-            className={`min-h-[44px] px-3.5 py-2 text-xs sm:text-sm font-medium rounded-xl transition-all whitespace-nowrap active:scale-95 ${view === 'simulator' ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100/80 text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'}`}
-            onClick={() => setView('simulator')}
-          >
-            Raw Simulator
-          </button>
-        </nav>
+    <div className="flex flex-col min-h-screen bg-slate-50 pb-16">
+      <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-30 shadow-xs">
+        <h1 className="text-xl font-bold tracking-tight text-slate-900">SkillGo Club</h1>
       </header>
       
       <main className="flex-1 overflow-y-auto">
-        {view === 'eval' && <EvaluationLab />}
-        {view === 'lab' && <LabHome />}
-        {view === 'evidence' && <EvidenceViewer />}
-        {view === 'simulator' && <Simulator />}
+        {view === 'home' && <Home />}
+        {view === 'lab' && <LabHome onNavigate={(v) => {
+          if (v === 'eval') setView('ai7');
+          else if (v === 'evidence') setView('cancincal');
+          else setView('lab');
+        }} />}
+        {view === 'ai7' && <EvaluationLab />}
+        {view === 'cancincal' && <EvidenceViewer />}
       </main>
+      
+      <BottomNav currentView={view} setView={setView} />
     </div>
   );
 }

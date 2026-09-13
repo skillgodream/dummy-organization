@@ -1,6 +1,5 @@
-import fs from 'fs';
-import path from 'path';
-import { Redis } from '@upstash/redis';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase.js';
 import { Employee, Shift, TaskLog, Observation, OrgEvent, LabDayRecord } from './models.js';
 
 export interface StoreSnapshot {
@@ -27,118 +26,60 @@ export class OrgStore {
   public rawEvents: OrgEvent[] = [];
   public labRecords: LabDayRecord[] = [];
   public hasInitialized: boolean = false;
-
-  private storageFilePath: string = path.resolve(process.cwd(), '.data', 'deancore_store.json');
-  private savePromise: Promise<void> | null = null;
-  private isSavePending: boolean = false;
+  private username: string | null = null;
   private isLoaded: boolean = false;
 
   constructor() {
-    this.loadSync();
+    //
   }
 
-  private getKvConfig(): { url: string, token: string } | null {
-    const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.VERCEL_KV_REST_API_URL;
-    const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.VERCEL_KV_REST_API_TOKEN;
-    if (url && token) {
-      return { url, token };
-    }
-    return null;
+  public setUser(username: string) {
+    this.username = username;
+    this.isLoaded = false;
+    this.load();
   }
 
-  public loadSync(): void {
+  public async load(): Promise<void> {
+    if (this.isLoaded || !this.username) return;
+
     try {
-      if (fs.existsSync(this.storageFilePath)) {
-        const raw = fs.readFileSync(this.storageFilePath, 'utf-8');
-        if (raw) {
-          const snapshot: StoreSnapshot = JSON.parse(raw);
-          this.applySnapshot(snapshot);
-        }
+      const docRef = doc(db, "users", this.username, "data", "store");
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        const snapshot = docSnap.data() as StoreSnapshot;
+        this.applySnapshot(snapshot);
+      } else {
+        // Clear data if new user
+        this.clearDataInternal();
       }
     } catch (e) {
-      // Ignore initial sync load errors if file is unreadable
+      console.warn('Failed to load store from Firestore:', e);
     }
-  }
-
-  public async load(force: boolean = false): Promise<void> {
-    if (this.isLoaded && !force) {
-      return;
-    }
-
-    if (this.savePromise) {
-      await this.savePromise;
-    }
-
-    const kv = this.getKvConfig();
-    if (kv) {
-      try {
-        const redis = new Redis({ url: kv.url, token: kv.token });
-        const raw = await redis.get<StoreSnapshot | string>('deancore_org_store');
-        if (raw) {
-          let snapshot: StoreSnapshot | null = null;
-          if (typeof raw === 'string') {
-            snapshot = JSON.parse(raw);
-          } else if (typeof raw === 'object') {
-            snapshot = raw as StoreSnapshot;
-          }
-          if (snapshot) {
-            this.applySnapshot(snapshot);
-            this.isLoaded = true;
-            return;
-          }
-        }
-      } catch (e) {
-        console.warn('Failed to load store from Vercel KV:', e);
-      }
-    }
-
-    this.loadSync();
+    
     this.isLoaded = true;
   }
 
   public async save(): Promise<void> {
-    if (this.savePromise) {
-      this.isSavePending = true;
-      await this.savePromise;
-      if (this.isSavePending) {
-        return this.save();
-      }
-      return;
-    }
-
-    this.savePromise = (async () => {
-      this.isSavePending = false;
-      const snapshot = this.getSnapshot();
-
-      // 1. Sync to disk file for local fallback & dev persistence
-      try {
-        const dir = path.dirname(this.storageFilePath);
-        if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true });
-        }
-        fs.writeFileSync(this.storageFilePath, JSON.stringify(snapshot, null, 2), 'utf-8');
-      } catch (e) {
-        // Ignore filesystem write errors on read-only serverless filesystems
-      }
-
-      // 2. Sync to Vercel KV REST API if configured
-      const kv = this.getKvConfig();
-      if (kv) {
-        try {
-          const redis = new Redis({ url: kv.url, token: kv.token });
-          await redis.set('deancore_org_store', snapshot);
-        } catch (e) {
-          console.warn('Failed to save store to Vercel KV:', e);
-        }
-      }
-    })();
-
+    if (!this.username) return;
+    const snapshot = this.getSnapshot();
     try {
-      await this.savePromise;
-    } finally {
-      this.savePromise = null;
+      const docRef = doc(db, "users", this.username, "data", "store");
+      await setDoc(docRef, snapshot);
+    } catch (e) {
+      console.warn('Failed to save store to Firestore:', e);
     }
   }
+
+  private clearDataInternal() {
+    this.shifts = [];
+    this.taskLogs = [];
+    this.observations = [];
+    this.rawEvents = [];
+    this.labRecords = [];
+    this.hasInitialized = false;
+  }
+
 
   private getSnapshot(): StoreSnapshot {
     return {
