@@ -2,6 +2,7 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert';
 import { OrgStore, orgStore } from '../org/store.js';
 import { generatePrefeedRecords } from '../org/prefeedGenerator.js';
+import { ensureInitialData } from '../api/routes.js';
 
 describe('Simulator Production Persistence Failure & Recovery Tests', () => {
   beforeEach(async () => {
@@ -128,5 +129,18 @@ describe('Simulator Production Persistence Failure & Recovery Tests', () => {
 
     const journeyDays = fetchedRecords.map(r => r.journeyDay).sort((a, b) => a - b);
     assert.deepStrictEqual(journeyDays, [0, 1, 2, 3, 4], 'Priya journey days must be 0, 1, 2, 3, 4');
+  });
+
+  it('verifies ensureInitialData initializes default pre-feed for ALL default employees (EMP-001..004)', async () => {
+    orgStore.clearData();
+    await orgStore.save();
+
+    await ensureInitialData();
+
+    const defaultEmployees = ['EMP-001', 'EMP-002', 'EMP-003', 'EMP-004'];
+    for (const empId of defaultEmployees) {
+      const records = orgStore.labRecords.filter(r => r.employeeId === empId);
+      assert.strictEqual(records.length, 5, `Employee ${empId} must have 5 pre-feed records initialized`);
+    }
   });
 });

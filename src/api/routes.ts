@@ -9,6 +9,19 @@ import { scenarios } from '../org/scenarios.js';
 import { generatePrefeedRecords } from '../org/prefeedGenerator.js';
 import { evaluationRunner } from '../eval/runner.js';
 
+export async function ensureInitialData() {
+  if (orgStore.rawEvents.length === 0 && orgStore.labRecords.length === 0) {
+    const defaultEmployees = ['EMP-001', 'EMP-002', 'EMP-003', 'EMP-004'];
+    for (const empId of defaultEmployees) {
+      const records = generatePrefeedRecords(empId, 5, 'Medium');
+      for (const record of records) {
+        orgStore.upsertLabRecord(record);
+      }
+    }
+    await orgStore.save();
+  }
+}
+
 export async function getEvidenceHandler(req: Request, res: Response) {
   try {
     await orgStore.load();
@@ -19,16 +32,7 @@ export async function getEvidenceHandler(req: Request, res: Response) {
     const journeyDay = req.query.journeyDay as string | undefined;
 
     // Ensure initial historical evidence exists if store is empty on serverless invocation
-    if (orgStore.rawEvents.length === 0 && orgStore.labRecords.length === 0) {
-      const defaultEmployees = ['EMP-001', 'EMP-002', 'EMP-003', 'EMP-004'];
-      for (const empId of defaultEmployees) {
-        const records = generatePrefeedRecords(empId, 5, 'Medium');
-        for (const record of records) {
-          orgStore.upsertLabRecord(record);
-        }
-      }
-      await orgStore.save();
-    }
+    await ensureInitialData();
 
     const events = orgStore.getEventsSince(sinceTimestamp, undefined); // fetch all, filter later
     let evidence: CanonicalEvidence[] = [];
@@ -81,6 +85,7 @@ export function setupRoutes(app: Express) {
   app.use(async (req: Request, res: Response, next) => {
     try {
       await orgStore.load();
+      await ensureInitialData();
       next();
     } catch (err) {
       next(err);
