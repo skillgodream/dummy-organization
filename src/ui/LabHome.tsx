@@ -61,7 +61,7 @@ export function LabHome() {
               </div>
             </div>
 
-            <button className="w-full py-3 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors">
+            <button className="w-full min-h-[44px] py-3 bg-slate-900 text-white rounded-xl text-sm font-medium hover:bg-slate-800 transition-colors flex items-center justify-center shadow-xs active:scale-[0.98]">
               Open Journey
             </button>
           </div>

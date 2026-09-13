@@ -2,10 +2,10 @@ import { Employee, Shift, TaskLog, Observation, OrgEvent, LabDayRecord } from '.
 
 class OrgStore {
   public employees: Employee[] = [
-    { id: 'EMP-001', name: 'Alice Smith', role: 'Picker' },
-    { id: 'EMP-002', name: 'Bob Jones', role: 'Picker' },
-    { id: 'EMP-003', name: 'Charlie Supervisor', role: 'Picker' },
-    { id: 'EMP-004', name: 'Diana Prince', role: 'Picker' },
+    { id: 'EMP-001', name: 'Rahul', role: 'Picker' },
+    { id: 'EMP-002', name: 'Priya', role: 'Picker' },
+    { id: 'EMP-003', name: 'Amit', role: 'Picker' },
+    { id: 'EMP-004', name: 'Diana', role: 'Picker' },
     { id: 'EMP-999', name: 'System Supervisor', role: 'Supervisor' }
   ];
   public shifts: Shift[] = [];
