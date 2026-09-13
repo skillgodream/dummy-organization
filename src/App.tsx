@@ -8,23 +8,11 @@ import { Simulator } from './ui/Simulator.js';
 import { EvidenceViewer } from './ui/EvidenceViewer.js';
 import { LabHome } from './ui/LabHome.js';
 import { EvaluationLab } from './ui/EvaluationLab.js';
-import { LoginPage } from './components/LoginPage.js';
 import { BottomNav } from './components/BottomNav.js';
 import { Home } from './pages/Home.js';
-import { orgStore } from './org/store.js';
 
 export default function App() {
   const [view, setView] = useState<'home' | 'lab' | 'ai7' | 'cancincal'>('home');
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-
-  const handleLogin = (username: string) => {
-    orgStore.setUser(username);
-    setIsLoggedIn(true);
-  };
-
-  if (!isLoggedIn) {
-    return <LoginPage onLogin={handleLogin} />;
-  }
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-50 pb-16">

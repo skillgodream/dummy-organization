@@ -26,32 +26,22 @@ export class OrgStore {
   public rawEvents: OrgEvent[] = [];
   public labRecords: LabDayRecord[] = [];
   public hasInitialized: boolean = false;
-  private username: string | null = null;
   private isLoaded: boolean = false;
 
   constructor() {
-    //
-  }
-
-  public setUser(username: string) {
-    this.username = username;
-    this.isLoaded = false;
     this.load();
   }
 
-  public async load(): Promise<void> {
-    if (this.isLoaded || !this.username) return;
+  public async load(force: boolean = false): Promise<void> {
+    if (this.isLoaded && !force) return;
 
     try {
-      const docRef = doc(db, "users", this.username, "data", "store");
+      const docRef = doc(db, "store", "deancore_org_store");
       const docSnap = await getDoc(docRef);
 
       if (docSnap.exists()) {
         const snapshot = docSnap.data() as StoreSnapshot;
         this.applySnapshot(snapshot);
-      } else {
-        // Clear data if new user
-        this.clearDataInternal();
       }
     } catch (e) {
       console.warn('Failed to load store from Firestore:', e);
@@ -61,10 +51,9 @@ export class OrgStore {
   }
 
   public async save(): Promise<void> {
-    if (!this.username) return;
     const snapshot = this.getSnapshot();
     try {
-      const docRef = doc(db, "users", this.username, "data", "store");
+      const docRef = doc(db, "store", "deancore_org_store");
       await setDoc(docRef, snapshot);
     } catch (e) {
       console.warn('Failed to save store to Firestore:', e);
