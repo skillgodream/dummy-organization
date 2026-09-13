@@ -1,0 +1,6 @@
+{
+  "name": "Organization Simulator",
+  "description": "Standalone prototype simulating organization operations and exposing normalized evidence boundary.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
