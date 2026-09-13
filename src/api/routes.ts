@@ -9,8 +9,9 @@ import { scenarios } from '../org/scenarios.js';
 import { generatePrefeedRecords } from '../org/prefeedGenerator.js';
 import { evaluationRunner } from '../eval/runner.js';
 
-export function getEvidenceHandler(req: Request, res: Response) {
+export async function getEvidenceHandler(req: Request, res: Response) {
   try {
+    await orgStore.load();
     const sinceTimestamp = req.query.since_timestamp as string | undefined;
     const limitParam = req.query.limit as string | undefined;
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
@@ -26,6 +27,7 @@ export function getEvidenceHandler(req: Request, res: Response) {
           orgStore.upsertLabRecord(record);
         }
       }
+      await orgStore.save();
     }
 
     const events = orgStore.getEventsSince(sinceTimestamp, undefined); // fetch all, filter later
@@ -76,6 +78,15 @@ export function getEvidenceHandler(req: Request, res: Response) {
 
 export function setupRoutes(app: Express) {
   
+  app.use(async (req: Request, res: Response, next) => {
+    try {
+      await orgStore.load();
+      next();
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // --- INTERNAL ORG ROUTES (FOR SIMULATOR UI) ---
   
   app.get('/api/internal/lab/employees', (req: Request, res: Response) => {
@@ -99,18 +110,19 @@ export function setupRoutes(app: Express) {
     res.json(records);
   });
 
-  app.post('/api/internal/lab/record', (req: Request, res: Response) => {
+  app.post('/api/internal/lab/record', async (req: Request, res: Response) => {
     try {
       const record = req.body;
       record.updatedAt = new Date().toISOString();
       orgStore.upsertLabRecord(record);
+      await orgStore.save();
       res.json({ success: true, record });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }
   });
 
-  app.post('/api/internal/lab/prefeed', (req: Request, res: Response) => {
+  app.post('/api/internal/lab/prefeed', async (req: Request, res: Response) => {
     try {
       const { employeeId, days, complexity } = req.body;
       if (!employeeId || typeof days !== 'number' || !complexity) {
@@ -124,6 +136,7 @@ export function setupRoutes(app: Express) {
       for (const record of records) {
         orgStore.upsertLabRecord(record);
       }
+      await orgStore.save();
       
       res.json({ success: true, records });
     } catch (err: any) {
@@ -131,25 +144,27 @@ export function setupRoutes(app: Express) {
     }
   });
 
-  app.delete('/api/internal/lab/record/:employeeId/:journeyDay', (req: Request, res: Response) => {
+  app.delete('/api/internal/lab/record/:employeeId/:journeyDay', async (req: Request, res: Response) => {
     try {
       orgStore.clearLabRecord(req.params.employeeId, parseInt(req.params.journeyDay, 10));
+      await orgStore.save();
       res.json({ success: true });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }
   });
 
-  app.delete('/api/internal/lab/journey/:employeeId', (req: Request, res: Response) => {
+  app.delete('/api/internal/lab/journey/:employeeId', async (req: Request, res: Response) => {
     try {
       orgStore.clearLabJourney(req.params.employeeId);
+      await orgStore.save();
       res.json({ success: true });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }
   });
 
-  app.post('/api/internal/scenario/:id', (req: Request, res: Response) => {
+  app.post('/api/internal/scenario/:id', async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const { employeeId } = req.body;
@@ -163,6 +178,7 @@ export function setupRoutes(app: Express) {
         case 'E': scenarios.runScenarioE(employeeId); break;
         default: return res.status(400).json({ error: 'Unknown scenario' });
       }
+      await orgStore.save();
       res.json({ success: true, scenario: id });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -177,48 +193,53 @@ export function setupRoutes(app: Express) {
     res.json(orgStore.shifts);
   });
 
-  app.post('/api/internal/shift/start', (req: Request, res: Response) => {
+  app.post('/api/internal/shift/start', async (req: Request, res: Response) => {
     try {
       const { employeeId } = req.body;
       const shift = orgService.startShift(employeeId);
+      await orgStore.save();
       res.json(shift);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }
   });
 
-  app.post('/api/internal/shift/complete', (req: Request, res: Response) => {
+  app.post('/api/internal/shift/complete', async (req: Request, res: Response) => {
     try {
       const { shiftId } = req.body;
       const shift = orgService.completeShift(shiftId);
+      await orgStore.save();
       res.json(shift);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }
   });
 
-  app.post('/api/internal/task/pick', (req: Request, res: Response) => {
+  app.post('/api/internal/task/pick', async (req: Request, res: Response) => {
     try {
       const { shiftId, unitsProcessed, durationSeconds, errorCount } = req.body;
       const task = orgService.logPickBatch(shiftId, unitsProcessed, durationSeconds, errorCount);
+      await orgStore.save();
       res.json(task);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }
   });
 
-  app.post('/api/internal/observation', (req: Request, res: Response) => {
+  app.post('/api/internal/observation', async (req: Request, res: Response) => {
     try {
       const { supervisorId, employeeId, noteType } = req.body;
       const obs = orgService.addObservation(supervisorId, employeeId, noteType);
+      await orgStore.save();
       res.json(obs);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }
   });
   
-  app.post('/api/internal/clear', (req: Request, res: Response) => {
+  app.post('/api/internal/clear', async (req: Request, res: Response) => {
     orgStore.clearData();
+    await orgStore.save();
     res.json({ success: true });
   });
 

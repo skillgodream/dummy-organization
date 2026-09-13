@@ -1,6 +1,16 @@
+import fs from 'fs';
+import path from 'path';
 import { Employee, Shift, TaskLog, Observation, OrgEvent, LabDayRecord } from './models.js';
 
-class OrgStore {
+export interface StoreSnapshot {
+  shifts: Shift[];
+  taskLogs: TaskLog[];
+  observations: Observation[];
+  rawEvents: OrgEvent[];
+  labRecords: LabDayRecord[];
+}
+
+export class OrgStore {
   public employees: Employee[] = [
     { id: 'EMP-001', name: 'Rahul', role: 'Picker' },
     { id: 'EMP-002', name: 'Priya', role: 'Picker' },
@@ -14,6 +24,113 @@ class OrgStore {
   
   public rawEvents: OrgEvent[] = [];
   public labRecords: LabDayRecord[] = [];
+
+  private storageFilePath: string = path.resolve(process.cwd(), '.data', 'deancore_store.json');
+
+  constructor() {
+    this.loadSync();
+  }
+
+  private getKvConfig(): { url: string, token: string } | null {
+    const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.VERCEL_KV_REST_API_URL;
+    const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.VERCEL_KV_REST_API_TOKEN;
+    if (url && token) {
+      return { url, token };
+    }
+    return null;
+  }
+
+  public loadSync(): void {
+    try {
+      if (fs.existsSync(this.storageFilePath)) {
+        const raw = fs.readFileSync(this.storageFilePath, 'utf-8');
+        if (raw) {
+          const snapshot: StoreSnapshot = JSON.parse(raw);
+          this.applySnapshot(snapshot);
+        }
+      }
+    } catch (e) {
+      // Ignore initial sync load errors if file is unreadable
+    }
+  }
+
+  public async load(): Promise<void> {
+    const kv = this.getKvConfig();
+    if (kv) {
+      try {
+        const endpoint = `${kv.url.replace(/\/$/, '')}/get/deancore_org_store`;
+        const res = await fetch(endpoint, {
+          headers: {
+            Authorization: `Bearer ${kv.token}`
+          }
+        });
+        if (res.ok) {
+          const body = await res.json();
+          const rawResult = body.result;
+          if (rawResult) {
+            const snapshot: StoreSnapshot = typeof rawResult === 'string' ? JSON.parse(rawResult) : rawResult;
+            this.applySnapshot(snapshot);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load store from Vercel KV:', e);
+      }
+    }
+
+    this.loadSync();
+  }
+
+  public async save(): Promise<void> {
+    const snapshot = this.getSnapshot();
+
+    // 1. Sync to disk file for local fallback & dev persistence
+    try {
+      const dir = path.dirname(this.storageFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(this.storageFilePath, JSON.stringify(snapshot, null, 2), 'utf-8');
+    } catch (e) {
+      // Ignore filesystem write errors on read-only serverless filesystems
+    }
+
+    // 2. Sync to Vercel KV REST API if configured
+    const kv = this.getKvConfig();
+    if (kv) {
+      try {
+        const endpoint = `${kv.url.replace(/\/$/, '')}/set/deancore_org_store`;
+        await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${kv.token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(JSON.stringify(snapshot))
+        });
+      } catch (e) {
+        console.warn('Failed to save store to Vercel KV:', e);
+      }
+    }
+  }
+
+  private getSnapshot(): StoreSnapshot {
+    return {
+      shifts: this.shifts,
+      taskLogs: this.taskLogs,
+      observations: this.observations,
+      rawEvents: this.rawEvents,
+      labRecords: this.labRecords
+    };
+  }
+
+  private applySnapshot(snapshot: Partial<StoreSnapshot>) {
+    if (Array.isArray(snapshot.shifts)) this.shifts = snapshot.shifts;
+    if (Array.isArray(snapshot.taskLogs)) this.taskLogs = snapshot.taskLogs;
+    if (Array.isArray(snapshot.observations)) this.observations = snapshot.observations;
+    if (Array.isArray(snapshot.rawEvents)) this.rawEvents = snapshot.rawEvents;
+    if (Array.isArray(snapshot.labRecords)) this.labRecords = snapshot.labRecords;
+  }
 
   public getEmployee(id: string): Employee | undefined {
     return this.employees.find(e => e.id === id);
@@ -30,18 +147,22 @@ class OrgStore {
     } else {
       this.shifts.push(shift);
     }
+    this.save();
   }
 
   public saveTaskLog(log: TaskLog) {
     this.taskLogs.push(log);
+    this.save();
   }
 
   public saveObservation(obs: Observation) {
     this.observations.push(obs);
+    this.save();
   }
 
   public appendEvent(event: OrgEvent) {
     this.rawEvents.push(event);
+    this.save();
   }
 
   public getEventsSince(timestamp?: string, limit?: number): OrgEvent[] {
@@ -65,6 +186,7 @@ class OrgStore {
     this.observations = [];
     this.rawEvents = [];
     this.labRecords = [];
+    this.save();
   }
 
   public upsertLabRecord(record: LabDayRecord) {
@@ -74,14 +196,17 @@ class OrgStore {
     } else {
       this.labRecords.push(record);
     }
+    this.save();
   }
 
   public clearLabRecord(employeeId: string, journeyDay: number) {
     this.labRecords = this.labRecords.filter(r => !(r.employeeId === employeeId && r.journeyDay === journeyDay));
+    this.save();
   }
 
   public clearLabJourney(employeeId: string) {
     this.labRecords = this.labRecords.filter(r => r.employeeId !== employeeId);
+    this.save();
   }
 }
 
