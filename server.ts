@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { setupRoutes } from "./src/api/routes.js";
@@ -6,6 +7,13 @@ import { setupRoutes } from "./src/api/routes.js";
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Enable CORS for all cross-origin requests
+  app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+  }));
 
   app.use(express.json());
 

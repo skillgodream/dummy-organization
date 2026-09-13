@@ -1,5 +1,5 @@
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeFirestore, getFirestore, setLogLevel } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyATkUltMCc3oFO_bXkuRgR5JcqMdF7mn7Q",
@@ -10,5 +10,20 @@ const firebaseConfig = {
   appId: "1:1007087151680:web:6c5df791dcbc0cb1e44da5"
 };
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, "ai-studio-organizationsimu-69feac0c-7d69-45d3-93fa-c069f1001ea5");
+// Silence internal gRPC idle stream warnings
+setLogLevel('silent');
+
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+const databaseId = "ai-studio-organizationsimu-69feac0c-7d69-45d3-93fa-c069f1001ea5";
+
+let dbInstance;
+try {
+  dbInstance = initializeFirestore(app, {
+    experimentalAutoDetectLongPolling: true,
+    ignoreUndefinedProperties: true,
+  }, databaseId);
+} catch {
+  dbInstance = getFirestore(app, databaseId);
+}
+
+export const db = dbInstance;
