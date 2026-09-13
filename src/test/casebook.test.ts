@@ -13,8 +13,10 @@ describe('Casebook Longitudinal Memory', () => {
     employeeId,
     journeyDay,
     initialState: {
+      employee_id: employeeId,
+      journey_day: journeyDay,
       performance: { productivity_actual: 50, productivity_target: 60, time_actual: 60, productivity_unit: 'units' },
-      accuracy: { accuracy_actual: 100, error_count: 0 },
+      accuracy: { accuracy_actual: 100, error_count: 0, status: 'observed' },
       capability: {},
       attendance: {},
       support: { help_requests: 0 },

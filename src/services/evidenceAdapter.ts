@@ -24,6 +24,7 @@ export interface WorkSignal {
 export interface ActionOutcome {
   improved: boolean | 'partial' | 'no';
   treatmentContext: string;
+  outcomeType?: 'SUCCESS' | 'PARTIAL' | 'FAILURE' | 'INSUFFICIENT_EVIDENCE' | 'UNINTENDED_CONSEQUENCE' | string;
 }
 
 export interface LoopExecutionInput {

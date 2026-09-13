@@ -205,7 +205,8 @@ export function EvaluationLab() {
             10 Canonical Evaluation Criteria Breakdown
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            {Object.entries(report.criteriaSummary).map(([key, item]) => {
+            {Object.entries(report.criteriaSummary).map(([key, rawItem]) => {
+              const item = rawItem as { percentage: number; passed: number; total: number };
               const labelMap: Record<string, string> = {
                 evidenceGrounding: 'Evidence Grounding',
                 diagnosisAccuracy: 'Diagnosis Accuracy',

@@ -9,6 +9,71 @@ import { scenarios } from '../org/scenarios.js';
 import { generatePrefeedRecords } from '../org/prefeedGenerator.js';
 import { evaluationRunner } from '../eval/runner.js';
 
+export function getEvidenceHandler(req: Request, res: Response) {
+  try {
+    const sinceTimestamp = req.query.since_timestamp as string | undefined;
+    const limitParam = req.query.limit as string | undefined;
+    const limit = limitParam ? parseInt(limitParam, 10) : undefined;
+    const employeeId = req.query.employeeId as string | undefined;
+    const journeyDay = req.query.journeyDay as string | undefined;
+
+    // Ensure initial historical evidence exists if store is empty on serverless invocation
+    if (orgStore.rawEvents.length === 0 && orgStore.labRecords.length === 0) {
+      const defaultEmployees = ['EMP-001', 'EMP-002', 'EMP-003', 'EMP-004'];
+      for (const empId of defaultEmployees) {
+        const records = generatePrefeedRecords(empId, 5, 'Medium');
+        for (const record of records) {
+          orgStore.upsertLabRecord(record);
+        }
+      }
+    }
+
+    const events = orgStore.getEventsSince(sinceTimestamp, undefined); // fetch all, filter later
+    let evidence: CanonicalEvidence[] = [];
+    
+    for (const evt of events) {
+      evidence.push(...normalizeEvent(evt));
+    }
+
+    // Merge lab records
+    let filteredLabRecords = orgStore.labRecords;
+    if (sinceTimestamp) {
+      filteredLabRecords = filteredLabRecords.filter(r => r.updatedAt >= sinceTimestamp);
+    }
+    for (const record of filteredLabRecords) {
+      evidence.push(...normalizeLabRecord(record));
+    }
+
+    // Sort globally by timestamp
+    evidence = evidence.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+    // Apply employeeId and journeyDay filters
+    if (employeeId) {
+      evidence = evidence.filter(e => e.subject_id === employeeId);
+    }
+    if (journeyDay !== undefined) {
+      evidence = evidence.filter(e => e.context?.journey_day === parseInt(journeyDay, 10));
+    }
+
+    if (limit && limit > 0) {
+      evidence = evidence.slice(0, limit);
+    }
+
+    res.json({
+      data: evidence,
+      count: evidence.length,
+      meta: {
+        since_timestamp: sinceTimestamp || null,
+        limit: limit || null,
+        employee_id: employeeId || null,
+        journey_day: journeyDay || null
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 export function setupRoutes(app: Express) {
   
   // --- INTERNAL ORG ROUTES (FOR SIMULATOR UI) ---
@@ -180,59 +245,7 @@ export function setupRoutes(app: Express) {
 
   // --- EXTERNAL INTEGRATION BOUNDARY ---
 
-  app.get('/api/v1/evidence', (req: Request, res: Response) => {
-    try {
-      const sinceTimestamp = req.query.since_timestamp as string | undefined;
-      const limitParam = req.query.limit as string | undefined;
-      const limit = limitParam ? parseInt(limitParam, 10) : undefined;
-      const employeeId = req.query.employeeId as string | undefined;
-      const journeyDay = req.query.journeyDay as string | undefined;
-
-      const events = orgStore.getEventsSince(sinceTimestamp, undefined); // fetch all, filter later
-      let evidence: CanonicalEvidence[] = [];
-      
-      for (const evt of events) {
-        evidence.push(...normalizeEvent(evt));
-      }
-
-      // Merge lab records
-      let filteredLabRecords = orgStore.labRecords;
-      if (sinceTimestamp) {
-        filteredLabRecords = filteredLabRecords.filter(r => r.updatedAt >= sinceTimestamp);
-      }
-      for (const record of filteredLabRecords) {
-        evidence.push(...normalizeLabRecord(record));
-      }
-
-      // Sort globally by timestamp
-      evidence = evidence.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-
-      // Apply employeeId and journeyDay filters
-      if (employeeId) {
-        evidence = evidence.filter(e => e.subject_id === employeeId);
-      }
-      if (journeyDay !== undefined) {
-        evidence = evidence.filter(e => e.context?.journey_day === parseInt(journeyDay, 10));
-      }
-
-      if (limit && limit > 0) {
-        evidence = evidence.slice(0, limit);
-      }
-
-      res.json({
-        data: evidence,
-        count: evidence.length,
-        meta: {
-          since_timestamp: sinceTimestamp || null,
-          limit: limit || null,
-          employee_id: employeeId || null,
-          journey_day: journeyDay || null
-        }
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
+  app.get('/api/v1/evidence', getEvidenceHandler);
 
   // --- AI-7 DEAN EVALUATION LABORATORY ROUTES ---
 
