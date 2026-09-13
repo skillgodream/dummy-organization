@@ -143,4 +143,76 @@ describe('Simulator Production Persistence Failure & Recovery Tests', () => {
       assert.strictEqual(records.length, 5, `Employee ${empId} must have 5 pre-feed records initialized`);
     }
   });
+
+  it('verifies Priya (EMP-002) Day 4 mutation edit and journey restart persistence across reloads', async () => {
+    orgStore.clearData();
+    await orgStore.save();
+    await ensureInitialData();
+
+    // 1. Mutate Priya Day 4 actualUnits = 70
+    orgStore.upsertLabRecord({ employeeId: 'EMP-002', journeyDay: 4, actualUnits: 70, updatedAt: new Date().toISOString() });
+    await orgStore.save();
+
+    // 2. Load again (simulating middleware GET request)
+    await orgStore.load();
+    const day4AfterLoad = orgStore.labRecords.find(r => r.employeeId === 'EMP-002' && r.journeyDay === 4);
+    assert.strictEqual(day4AfterLoad?.actualUnits, 70, 'Edited actualUnits=70 must be preserved after load()');
+
+    // 3. Cold start reinitialization
+    const freshStore1 = new OrgStore();
+    await freshStore1.load();
+    const freshDay4 = freshStore1.labRecords.find(r => r.employeeId === 'EMP-002' && r.journeyDay === 4);
+    assert.strictEqual(freshDay4?.actualUnits, 70, 'Edited actualUnits=70 must survive server cold start');
+
+    // 4. Restart Priya journey
+    orgStore.clearLabJourney('EMP-002');
+    await orgStore.save();
+
+    // 5. Load again and verify Priya journey is cleared
+    await orgStore.load();
+    const priyaRecordsAfterRestart = orgStore.labRecords.filter(r => r.employeeId === 'EMP-002');
+    assert.strictEqual(priyaRecordsAfterRestart.length, 0, 'Priya records must remain 0 after journey restart');
+
+    // 6. Cold start reinitialization after restart
+    const freshStore2 = new OrgStore();
+    await freshStore2.load();
+    const freshPriyaRecordsAfterRestart = freshStore2.labRecords.filter(r => r.employeeId === 'EMP-002');
+    assert.strictEqual(freshPriyaRecordsAfterRestart.length, 0, 'Priya records must remain 0 after server cold start');
+  });
+
+  it('verifies restarting journeys for all employees (Rahul EMP-001 through EMP-004) preserves cleared state without re-seeding pre-feed', async () => {
+    orgStore.clearData();
+    await orgStore.save();
+    await ensureInitialData();
+
+    // Verify initial seed
+    assert.strictEqual(orgStore.labRecords.length, 20, 'Initial seed should produce 20 records');
+    assert.strictEqual(orgStore.hasInitialized, true, 'hasInitialized should be true after seed');
+
+    // Restart Rahul (EMP-001)
+    orgStore.clearLabJourney('EMP-001');
+    await orgStore.save();
+    await ensureInitialData();
+    assert.strictEqual(orgStore.labRecords.filter(r => r.employeeId === 'EMP-001').length, 0, 'Rahul records must be 0 after restart');
+
+    // Restart all remaining employees
+    orgStore.clearLabJourney('EMP-002');
+    orgStore.clearLabJourney('EMP-003');
+    orgStore.clearLabJourney('EMP-004');
+    await orgStore.save();
+
+    // Verify 0 records in memory
+    assert.strictEqual(orgStore.labRecords.length, 0, 'Store labRecords must be 0 after clearing all 4 journeys');
+
+    // Trigger ensureInitialData (simulating middleware on page refresh)
+    await ensureInitialData();
+    assert.strictEqual(orgStore.labRecords.length, 0, 'ensureInitialData must NOT re-seed pre-feed records when hasInitialized is true');
+
+    // Cold start server process simulation
+    const freshStore = new OrgStore();
+    await freshStore.load();
+    await ensureInitialData();
+    assert.strictEqual(freshStore.labRecords.length, 0, 'Cold start store must maintain 0 records without re-seeding pre-feed');
+    assert.strictEqual(freshStore.hasInitialized, true, 'Cold start store must retain hasInitialized=true');
+  });
 });

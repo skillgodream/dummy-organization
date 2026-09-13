@@ -84,13 +84,13 @@ export function EmployeeJourney({ employee, onBack }: { employee: any, onBack: (
   const handleClearDay = async () => {
     if (!confirm(`Are you sure you want to clear Day ${selectedDay}?`)) return;
     await fetch(`/api/internal/lab/record/${employee.id}/${selectedDay}`, { method: 'DELETE' });
-    fetchRecords();
+    await fetchRecords();
   };
 
   const handleRestartJourney = async () => {
     if (!confirm('Are you sure you want to completely restart this 10-day journey? This will delete all days for this employee.')) return;
     await fetch(`/api/internal/lab/journey/${employee.id}`, { method: 'DELETE' });
-    fetchRecords();
+    await fetchRecords();
     setSelectedDay(0);
   };
 

@@ -10,14 +10,17 @@ import { generatePrefeedRecords } from '../org/prefeedGenerator.js';
 import { evaluationRunner } from '../eval/runner.js';
 
 export async function ensureInitialData() {
-  if (orgStore.rawEvents.length === 0 && orgStore.labRecords.length === 0) {
-    const defaultEmployees = ['EMP-001', 'EMP-002', 'EMP-003', 'EMP-004'];
-    for (const empId of defaultEmployees) {
-      const records = generatePrefeedRecords(empId, 5, 'Medium');
-      for (const record of records) {
-        orgStore.upsertLabRecord(record);
+  if (!orgStore.hasInitialized) {
+    if (orgStore.rawEvents.length === 0 && orgStore.labRecords.length === 0) {
+      const defaultEmployees = ['EMP-001', 'EMP-002', 'EMP-003', 'EMP-004'];
+      for (const empId of defaultEmployees) {
+        const records = generatePrefeedRecords(empId, 5, 'Medium');
+        for (const record of records) {
+          orgStore.upsertLabRecord(record);
+        }
       }
     }
+    orgStore.hasInitialized = true;
     await orgStore.save();
   }
 }

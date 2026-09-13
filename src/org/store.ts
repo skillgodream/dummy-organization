@@ -9,6 +9,7 @@ export interface StoreSnapshot {
   observations: Observation[];
   rawEvents: OrgEvent[];
   labRecords: LabDayRecord[];
+  hasInitialized?: boolean;
 }
 
 export class OrgStore {
@@ -25,10 +26,12 @@ export class OrgStore {
   
   public rawEvents: OrgEvent[] = [];
   public labRecords: LabDayRecord[] = [];
+  public hasInitialized: boolean = false;
 
   private storageFilePath: string = path.resolve(process.cwd(), '.data', 'deancore_store.json');
   private savePromise: Promise<void> | null = null;
   private isSavePending: boolean = false;
+  private isLoaded: boolean = false;
 
   constructor() {
     this.loadSync();
@@ -57,7 +60,11 @@ export class OrgStore {
     }
   }
 
-  public async load(): Promise<void> {
+  public async load(force: boolean = false): Promise<void> {
+    if (this.isLoaded && !force) {
+      return;
+    }
+
     if (this.savePromise) {
       await this.savePromise;
     }
@@ -76,6 +83,7 @@ export class OrgStore {
           }
           if (snapshot) {
             this.applySnapshot(snapshot);
+            this.isLoaded = true;
             return;
           }
         }
@@ -85,6 +93,7 @@ export class OrgStore {
     }
 
     this.loadSync();
+    this.isLoaded = true;
   }
 
   public async save(): Promise<void> {
@@ -137,7 +146,8 @@ export class OrgStore {
       taskLogs: this.taskLogs,
       observations: this.observations,
       rawEvents: this.rawEvents,
-      labRecords: this.labRecords
+      labRecords: this.labRecords,
+      hasInitialized: this.hasInitialized
     };
   }
 
@@ -147,6 +157,11 @@ export class OrgStore {
     if (Array.isArray(snapshot.observations)) this.observations = snapshot.observations;
     if (Array.isArray(snapshot.rawEvents)) this.rawEvents = snapshot.rawEvents;
     if (Array.isArray(snapshot.labRecords)) this.labRecords = snapshot.labRecords;
+    if (typeof snapshot.hasInitialized === 'boolean') {
+      this.hasInitialized = snapshot.hasInitialized;
+    } else if (this.labRecords.length > 0 || this.rawEvents.length > 0) {
+      this.hasInitialized = true;
+    }
   }
 
   public getEmployee(id: string): Employee | undefined {
@@ -203,6 +218,7 @@ export class OrgStore {
     this.observations = [];
     this.rawEvents = [];
     this.labRecords = [];
+    this.hasInitialized = false;
     this.save();
   }
 
