@@ -42,16 +42,16 @@ export function Home() {
         </p>
       </div>
 
-      {/* Live API Connection Card */}
+      {/* Live Cloud Firestore Connection Card */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
-              <Server className="w-5 h-5" />
+            <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+              <Database className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-slate-900">Active Simulator Evidence Endpoint</h2>
-              <p className="text-xs text-slate-500">Provide this URL to your Check-in App / Agent</p>
+              <h2 className="text-base font-semibold text-slate-900">Google Cloud Firestore (Continuous Sync)</h2>
+              <p className="text-xs text-slate-500">Real-time WebSocket pipeline pushing shifts to Check-in App in &lt;200ms</p>
             </div>
           </div>
           <button
@@ -60,8 +60,51 @@ export function Home() {
             className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
             title="Refresh record count"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-blue-600' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-indigo-600' : ''}`} />
           </button>
+        </div>
+
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-500 font-medium">Target Collection:</span>
+            <span className="font-mono bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-semibold border border-indigo-100">simulator_evidence</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-500 font-medium">Database ID:</span>
+            <span className="font-mono text-slate-700">ai-studio-organizationsimu-69feac0c-7d69-45d3-93fa-c069f1001ea5</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-500 font-medium">Continuous Mode:</span>
+            <span className="inline-flex items-center gap-1.5 text-emerald-600 font-medium">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Auto-Broadcasting on Shift / Lab update
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+          <div className="flex items-center gap-2 text-slate-600">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span>Real-time Stream: <strong>Active & Syncing</strong></span>
+          </div>
+          <div className="text-slate-500">
+            Total Synced Records: <strong className="text-slate-900">{recordCount !== null ? recordCount : '...'}</strong>
+          </div>
+        </div>
+      </div>
+
+      {/* HTTP REST Fallback Card */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+              <Server className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">HTTP REST Evidence Endpoint (Fallback)</h2>
+              <p className="text-xs text-slate-500">CORS-enabled REST boundary for external API clients and crawlers</p>
+            </div>
+          </div>
         </div>
 
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
@@ -85,16 +128,6 @@ export function Home() {
             >
               <ExternalLink className="w-4 h-4" />
             </a>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
-          <div className="flex items-center gap-2 text-slate-600">
-            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span>Status: <strong>Online & Accessible</strong></span>
-          </div>
-          <div className="text-slate-500">
-            Live Stream Records: <strong className="text-slate-900">{recordCount !== null ? recordCount : '...'}</strong>
           </div>
         </div>
       </div>

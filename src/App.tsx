@@ -15,7 +15,7 @@ export default function App() {
   const [view, setView] = useState<'home' | 'lab' | 'ai7' | 'cancincal'>('home');
 
   return (
-    <div className="flex flex-col min-h-screen bg-slate-50 pb-16">
+    <div className="flex flex-col min-h-screen bg-slate-50 pb-24">
       <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-30 shadow-xs">
         <h1 className="text-xl font-bold tracking-tight text-slate-900">SkillGo Club</h1>
       </header>

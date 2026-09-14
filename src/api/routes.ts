@@ -8,6 +8,29 @@ import { deriveLearnerState } from '../evidence/learnerState.js';
 import { scenarios } from '../org/scenarios.js';
 import { generatePrefeedRecords } from '../org/prefeedGenerator.js';
 import { evaluationRunner } from '../eval/runner.js';
+import { broadcastAllEvidenceToCloud, broadcastShiftToCloud } from '../lib/firestoreSync.js';
+
+export function getAllCanonicalEvidence(): CanonicalEvidence[] {
+  const events = orgStore.getEventsSince(undefined, undefined);
+  let evidence: CanonicalEvidence[] = [];
+  
+  for (const evt of events) {
+    evidence.push(...normalizeEvent(evt));
+  }
+
+  for (const record of orgStore.labRecords) {
+    evidence.push(...normalizeLabRecord(record));
+  }
+
+  return evidence.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+}
+
+export async function syncAllEvidenceToFirestore(): Promise<void> {
+  const allEvidence = getAllCanonicalEvidence();
+  if (allEvidence.length > 0) {
+    await broadcastAllEvidenceToCloud(allEvidence);
+  }
+}
 
 export async function ensureInitialData() {
   if (!orgStore.hasInitialized) {
@@ -22,6 +45,8 @@ export async function ensureInitialData() {
     }
     orgStore.hasInitialized = true;
     await orgStore.save();
+    // Continuously seed cloud simulator_evidence collection
+    syncAllEvidenceToFirestore().catch(e => console.warn('Initial firestore broadcast warning:', e));
   }
 }
 
@@ -128,6 +153,11 @@ export function setupRoutes(app: Express) {
       record.updatedAt = new Date().toISOString();
       orgStore.upsertLabRecord(record);
       await orgStore.save();
+      // Real-time Firestore continuous push
+      const normalized = normalizeLabRecord(record);
+      for (const item of normalized) {
+        broadcastShiftToCloud(item).catch(e => console.warn('Broadcast item failed:', e));
+      }
       res.json({ success: true, record });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -149,6 +179,8 @@ export function setupRoutes(app: Express) {
         orgStore.upsertLabRecord(record);
       }
       await orgStore.save();
+      // Continuous bulk broadcast to Firestore
+      syncAllEvidenceToFirestore().catch(e => console.warn('Broadcast all evidence failed:', e));
       
       res.json({ success: true, records });
     } catch (err: any) {
@@ -160,6 +192,7 @@ export function setupRoutes(app: Express) {
     try {
       orgStore.clearLabRecord(req.params.employeeId, parseInt(req.params.journeyDay, 10));
       await orgStore.save();
+      syncAllEvidenceToFirestore().catch(e => console.warn('Broadcast sync failed:', e));
       res.json({ success: true });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -170,6 +203,7 @@ export function setupRoutes(app: Express) {
     try {
       orgStore.clearLabJourney(req.params.employeeId);
       await orgStore.save();
+      syncAllEvidenceToFirestore().catch(e => console.warn('Broadcast sync failed:', e));
       res.json({ success: true });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -191,6 +225,7 @@ export function setupRoutes(app: Express) {
         default: return res.status(400).json({ error: 'Unknown scenario' });
       }
       await orgStore.save();
+      syncAllEvidenceToFirestore().catch(e => console.warn('Broadcast sync failed:', e));
       res.json({ success: true, scenario: id });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -210,6 +245,7 @@ export function setupRoutes(app: Express) {
       const { employeeId } = req.body;
       const shift = orgService.startShift(employeeId);
       await orgStore.save();
+      syncAllEvidenceToFirestore().catch(e => console.warn('Broadcast sync failed:', e));
       res.json(shift);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -221,6 +257,7 @@ export function setupRoutes(app: Express) {
       const { shiftId } = req.body;
       const shift = orgService.completeShift(shiftId);
       await orgStore.save();
+      syncAllEvidenceToFirestore().catch(e => console.warn('Broadcast sync failed:', e));
       res.json(shift);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -232,6 +269,7 @@ export function setupRoutes(app: Express) {
       const { shiftId, unitsProcessed, durationSeconds, errorCount } = req.body;
       const task = orgService.logPickBatch(shiftId, unitsProcessed, durationSeconds, errorCount);
       await orgStore.save();
+      syncAllEvidenceToFirestore().catch(e => console.warn('Broadcast sync failed:', e));
       res.json(task);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -243,6 +281,7 @@ export function setupRoutes(app: Express) {
       const { supervisorId, employeeId, noteType } = req.body;
       const obs = orgService.addObservation(supervisorId, employeeId, noteType);
       await orgStore.save();
+      syncAllEvidenceToFirestore().catch(e => console.warn('Broadcast sync failed:', e));
       res.json(obs);
     } catch (err: any) {
       res.status(400).json({ error: err.message });

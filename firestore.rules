@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /store/{storeId} {
+      allow read, write: if storeId.size() <= 128;
+    }
+
+    match /simulator_evidence/{evidenceId} {
+      allow read, write: if evidenceId.size() <= 128;
+    }
+    
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "entities": {
+    "StoreSnapshot": {
+      "title": "StoreSnapshot",
+      "description": "Simulation organization state snapshot containing all events, records, and shifts",
+      "type": "object",
+      "properties": {
+        "shifts": {
+          "type": "array",
+          "description": "List of recorded shifts"
+        },
+        "taskLogs": {
+          "type": "array",
+          "description": "List of task logs"
+        },
+        "observations": {
+          "type": "array",
+          "description": "List of supervisor observations"
+        },
+        "rawEvents": {
+          "type": "array",
+          "description": "List of normalized raw organizational events"
+        },
+        "labRecords": {
+          "type": "array",
+          "description": "List of lab journey records per employee"
+        },
+        "hasInitialized": {
+          "type": "boolean",
+          "description": "Whether the store has been seeded with initial baseline data"
+        }
+      }
+    },
+    "CanonicalEvidence": {
+      "title": "CanonicalEvidence",
+      "description": "Real-time canonical evidence items streamed directly from simulator shifts to supervisor check-in apps",
+      "type": "object",
+      "properties": {
+        "evidence_id": {
+          "type": "string",
+          "description": "Unique identifier of the evidence item"
+        },
+        "subject_id": {
+          "type": "string",
+          "description": "Employee ID subject of telemetry"
+        },
+        "subject_type": {
+          "type": "string",
+          "description": "Subject type (employee)"
+        },
+        "category": {
+          "type": "string",
+          "description": "Evidence category (productivity, quality, attendance, learning, support, environment)"
+        },
+        "type": {
+          "type": "string",
+          "description": "Metric type (e.g. pick_volume, pick_velocity, accuracy_score, assessment_score)"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "ISO timestamp of event"
+        },
+        "value": {
+          "description": "Value of the evidence item"
+        },
+        "source_system": {
+          "type": "string",
+          "description": "System of origin"
+        },
+        "confidence_score": {
+          "type": "number",
+          "description": "Confidence score"
+        },
+        "evidence_kind": {
+          "type": "string",
+          "description": "observed, reported, or derived"
+        },
+        "context": {
+          "type": "object",
+          "description": "Shift and journey context"
+        }
+      }
+    }
+  },
+  "firestore": {
+    "/store/{storeId}": {
+      "schema": "StoreSnapshot",
+      "description": "Organization simulation documents storing state snapshots"
+    },
+    "/simulator_evidence/{evidenceId}": {
+      "schema": "CanonicalEvidence",
+      "description": "Live real-time stream of all simulator evidence records for supervisor applications"
+    }
+  }
+}
