@@ -12,7 +12,7 @@ import { BottomNav } from './components/BottomNav.js';
 import { Home } from './pages/Home.js';
 
 export default function App() {
-  const [view, setView] = useState<'home' | 'lab' | 'ai7' | 'cancincal'>('home');
+  const [view, setView] = useState<'home' | 'lab' | 'simulator' | 'ai7' | 'cancincal'>('home');
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-50 pb-24">
@@ -25,8 +25,10 @@ export default function App() {
         {view === 'lab' && <LabHome onNavigate={(v) => {
           if (v === 'eval') setView('ai7');
           else if (v === 'evidence') setView('cancincal');
+          else if (v === 'simulator') setView('simulator');
           else setView('lab');
         }} />}
+        {view === 'simulator' && <Simulator />}
         {view === 'ai7' && <EvaluationLab />}
         {view === 'cancincal' && <EvidenceViewer />}
       </main>

@@ -1,12 +1,39 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { LAB_TARGETS } from '../org/targets.js';
+import { 
+  Check, 
+  Save, 
+  Trash2, 
+  RotateCcw, 
+  ChevronDown, 
+  ChevronUp, 
+  Sparkles, 
+  Activity, 
+  AlertCircle, 
+  CheckCircle2, 
+  TrendingUp, 
+  HelpCircle,
+  Eye,
+  Sliders
+} from 'lucide-react';
 
 export function EmployeeJourney({ employee, onBack }: { employee: any, onBack: () => void }) {
   const [selectedDay, setSelectedDay] = useState<number>(0);
   const [records, setRecords] = useState<any[]>([]);
   const [formData, setFormData] = useState<any>({});
   
-  const [activeSection, setActiveSection] = useState<string>('A');
+  // Section accordion state
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    A: true, // Work
+    B: true, // Accuracy
+    C: false, // Attendance
+    D: false, // Skill
+    E: false, // Support
+    F: false, // Tool
+    G: false, // Environment
+    H: false  // Human Observation
+  });
+
   const [prefeedDays, setPrefeedDays] = useState<number>(5);
   const [prefeedComplexity, setPrefeedComplexity] = useState<string>('Medium');
   const [isPrefeeding, setIsPrefeeding] = useState<boolean>(false);
@@ -16,18 +43,43 @@ export function EmployeeJourney({ employee, onBack }: { employee: any, onBack: (
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
+  const toggleAllSections = (expand: boolean) => {
+    setExpandedSections({
+      A: expand,
+      B: expand,
+      C: expand,
+      D: expand,
+      E: expand,
+      F: expand,
+      G: expand,
+      H: expand
+    });
+  };
+
+  const toggleSection = (sec: string) => {
+    setExpandedSections(prev => ({ ...prev, [sec]: !prev[sec] }));
+  };
+
   const fetchRecords = async () => {
-    const res = await fetch(`/api/internal/lab/records/${employee.id}`);
-    const data = await res.json();
-    setRecords(data);
-    loadFormData(data, selectedDay);
+    try {
+      const res = await fetch(`/api/internal/lab/records/${employee.id}`);
+      const data = await res.json();
+      setRecords(data);
+      loadFormData(data, selectedDay);
+    } catch (err) {
+      console.error('Failed to fetch records', err);
+    }
   };
 
   const fetchLearnerState = async () => {
-    const res = await fetch(`/api/internal/lab/learner-state/${employee.id}/${selectedDay}`);
-    if (res.ok) {
-      const data = await res.json();
-      setLearnerState(data);
+    try {
+      const res = await fetch(`/api/internal/lab/learner-state/${employee.id}/${selectedDay}`);
+      if (res.ok) {
+        const data = await res.json();
+        setLearnerState(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch learner state', err);
     }
   };
 
@@ -46,36 +98,94 @@ export function EmployeeJourney({ employee, onBack }: { employee: any, onBack: (
   const loadFormData = (allRecords: any[], day: number) => {
     const record = allRecords.find((r: any) => r.journeyDay === day);
     if (record) {
-      setFormData(record);
+      setFormData({ ...record });
     } else {
-      setFormData({ employeeId: employee.id, journeyDay: day });
+      setFormData({
+        employeeId: employee.id,
+        journeyDay: day,
+        taskType: 'Standard Pick',
+        expectedUnits: 60,
+        actualUnits: undefined,
+        timeTakenMinutes: 60,
+        shiftStatus: 'Present',
+        errorCount: 0,
+        attendanceStatus: 'Present',
+        lateMinutes: 0,
+        shiftCompleted: 'Yes',
+        taskProficiency: 'Developing',
+        assessmentScore: 90,
+        trainingStatus: 'Completed',
+        newTaskExposure: 'No',
+        helpRequests: 1,
+        escalationCount: 0,
+        supervisorAssistance: 'No',
+        toolStatus: 'Normal',
+        downtimeMinutes: 0,
+        workloadCondition: 'Normal'
+      });
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Live real-time calculations from whatever numbers are in formData
+  const liveStats = useMemo(() => {
+    const actual = formData.actualUnits !== undefined && formData.actualUnits !== null ? Number(formData.actualUnits) : null;
+    const timeMins = formData.timeTakenMinutes !== undefined && formData.timeTakenMinutes !== null ? Number(formData.timeTakenMinutes) : 60;
+    const errors = formData.errorCount !== undefined && formData.errorCount !== null ? Number(formData.errorCount) : 0;
+    const expected = formData.expectedUnits !== undefined && formData.expectedUnits !== null ? Number(formData.expectedUnits) : 60;
+
+    const velocity = actual !== null && timeMins > 0 ? (actual / (timeMins / 60)) : null;
+    const accuracy = actual !== null && actual > 0 ? Math.max(0, ((actual - errors) / actual) * 100) : null;
+
+    const prodTargetMet = velocity !== null ? velocity >= LAB_TARGETS.actualUnits.target : null;
+    const accTargetMet = accuracy !== null ? accuracy >= LAB_TARGETS.accuracyPercentage.target : null;
+    const errTargetMet = errors <= LAB_TARGETS.errorCount.target;
+
+    return {
+      actual,
+      expected,
+      timeMins,
+      errors,
+      velocity: velocity !== null ? Number(velocity.toFixed(1)) : null,
+      accuracy: accuracy !== null ? Number(accuracy.toFixed(1)) : null,
+      prodTargetMet,
+      accTargetMet,
+      errTargetMet
+    };
+  }, [formData]);
+
+  const handleSave = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setIsSaving(true);
     setSaveStatus('idle');
     setSaveMessage(null);
     try {
+      // Auto compute accuracy percentage if not explicitly given
+      const payload = { ...formData };
+      if (liveStats.accuracy !== null && payload.accuracyPercentage === undefined) {
+        payload.accuracyPercentage = liveStats.accuracy;
+      }
+
       const res = await fetch('/api/internal/lab/record', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
+
       if (!res.ok) {
         throw new Error('Save failed');
       }
+
       await fetchRecords();
+      await fetchLearnerState();
       setSaveStatus('success');
-      setSaveMessage('Saved successfully');
+      setSaveMessage(`Day ${selectedDay} successfully saved & synced to cloud!`);
       setTimeout(() => {
         setSaveStatus('idle');
         setSaveMessage(null);
       }, 4000);
-    } catch (err) {
+    } catch (err: any) {
       setSaveStatus('error');
-      setSaveMessage('Save failed. Please try again.');
+      setSaveMessage(err.message || 'Save failed. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -85,6 +195,7 @@ export function EmployeeJourney({ employee, onBack }: { employee: any, onBack: (
     if (!confirm(`Are you sure you want to clear Day ${selectedDay}?`)) return;
     await fetch(`/api/internal/lab/record/${employee.id}/${selectedDay}`, { method: 'DELETE' });
     await fetchRecords();
+    await fetchLearnerState();
   };
 
   const handleRestartJourney = async () => {
@@ -95,13 +206,6 @@ export function EmployeeJourney({ employee, onBack }: { employee: any, onBack: (
   };
 
   const handlePrefeed = async () => {
-    const existingDays = Array.from({ length: prefeedDays }).filter((_, i) => records.some(r => r.journeyDay === i));
-    if (existingDays.length > 0) {
-      if (!confirm(`Days 0 to ${prefeedDays - 1} already contain data. Pre-feed will replace these records. Continue?`)) {
-        return;
-      }
-    }
-    
     setIsPrefeeding(true);
     try {
       await fetch('/api/internal/lab/prefeed', {
@@ -114,6 +218,12 @@ export function EmployeeJourney({ employee, onBack }: { employee: any, onBack: (
         })
       });
       await fetchRecords();
+      setSelectedDay(0);
+      setSaveStatus('success');
+      setSaveMessage(`Pre-fed ${prefeedDays} days of longitudinal evidence!`);
+      setTimeout(() => setSaveStatus('idle'), 4000);
+    } catch (err) {
+      console.error(err);
     } finally {
       setIsPrefeeding(false);
     }
@@ -121,42 +231,53 @@ export function EmployeeJourney({ employee, onBack }: { employee: any, onBack: (
 
   const isPopulated = (day: number) => records.some(r => r.journeyDay === day);
 
-  const derivedAccuracy = formData.actualUnits !== undefined && formData.errorCount !== undefined 
-    ? Math.max(0, ((formData.actualUnits - formData.errorCount) / formData.actualUnits) * 100).toFixed(1)
-    : undefined;
-
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto flex flex-col lg:flex-row gap-8 lg:gap-12">
-      {/* LEFT COLUMN - NAVIGATION & HISTORY */}
-      <div className="w-full lg:w-72 shrink-0 flex flex-col gap-6 lg:gap-10">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto flex flex-col lg:flex-row gap-8 lg:gap-10">
+      
+      {/* LEFT COLUMN - NAVIGATION & TIMELINE */}
+      <div className="w-full lg:w-72 shrink-0 flex flex-col gap-6">
         <div>
-          <button onClick={onBack} className="min-h-[44px] text-sm font-medium text-slate-500 hover:text-slate-900 mb-4 flex items-center gap-2 transition-colors py-2 -ml-2 px-3 rounded-lg active:bg-slate-100">
+          <button 
+            onClick={onBack} 
+            className="min-h-[44px] text-sm font-medium text-slate-500 hover:text-slate-900 mb-3 flex items-center gap-2 transition-colors py-2 -ml-2 px-3 rounded-lg active:bg-slate-100"
+          >
             ← Back to Lab
           </button>
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 mb-1">{employee.name}</h1>
-          <p className="text-sm font-mono font-medium text-slate-500">{employee.id}</p>
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">{employee.name}</h1>
+            <p className="text-xs font-mono font-medium text-slate-500 mt-0.5">{employee.id} • {employee.role}</p>
+          </div>
         </div>
 
-        <div>
-          <h3 className="text-xs font-semibold text-slate-400 mb-3 uppercase tracking-widest">10-Day Journey</h3>
-          <div className="flex flex-wrap gap-2">
+        {/* 10-Day Journey Selector */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">10-Day Timeline</h3>
+            <span className="text-xs font-medium text-slate-500">{records.length}/11 populated</span>
+          </div>
+
+          <div className="grid grid-cols-4 gap-2">
             {Array.from({ length: 11 }).map((_, i) => {
               const populated = isPopulated(i);
+              const isSelected = selectedDay === i;
               return (
                 <button
                   key={i}
                   type="button"
+                  id={`day-select-btn-${i}`}
                   onClick={() => setSelectedDay(i)}
-                  className={`relative min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center rounded-xl border text-sm font-medium transition-all active:scale-95 touch-manipulation ${
-                    selectedDay === i 
-                      ? 'border-slate-900 bg-slate-900 text-white shadow-md' 
+                  className={`relative min-h-[44px] py-2 flex flex-col items-center justify-center rounded-xl border text-xs font-medium transition-all active:scale-95 touch-manipulation ${
+                    isSelected 
+                      ? 'border-indigo-600 bg-indigo-600 text-white shadow-md shadow-indigo-200 font-bold' 
                       : populated 
-                        ? 'border-slate-200 bg-slate-50 text-slate-900 hover:border-slate-300' 
-                        : 'border-slate-200 bg-transparent text-slate-400 hover:border-slate-300 hover:text-slate-600'
+                        ? 'border-emerald-200 bg-emerald-50/80 text-emerald-900 hover:border-emerald-300' 
+                        : 'border-slate-200 bg-slate-50/60 text-slate-400 hover:border-slate-300 hover:text-slate-700'
                   }`}
                 >
-                  D{i}
-                  {populated && selectedDay !== i && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-slate-900 rounded-full"></span>}
+                  <span>D{i}</span>
+                  {populated && !isSelected && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-0.5"></span>
+                  )}
                 </button>
               );
             })}
@@ -165,357 +286,539 @@ export function EmployeeJourney({ employee, onBack }: { employee: any, onBack: (
           <button 
             type="button"
             onClick={handleRestartJourney}
-            className="mt-5 w-full min-h-[44px] py-2.5 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-xl transition-colors active:bg-red-100/60"
+            className="w-full py-2 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-xl transition-colors active:bg-red-100 flex items-center justify-center gap-1.5"
           >
-            Restart Journey
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset All Days</span>
           </button>
         </div>
 
         {/* History Table */}
-        <div className="overflow-x-auto">
-          <h3 className="text-xs font-semibold text-slate-400 mb-4 uppercase tracking-widest whitespace-nowrap">History Overview</h3>
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
+          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Journey History</h3>
           {records.length === 0 ? (
-            <p className="text-sm text-slate-500 italic">No days populated yet.</p>
+            <p className="text-xs text-slate-500 italic py-2">No days recorded yet. Pre-feed history or save a day.</p>
           ) : (
-            <table className="w-full text-sm text-left min-w-[200px]">
-              <thead>
-                <tr className="text-slate-400 border-b border-slate-200">
-                  <th className="pb-3 font-semibold">Day</th>
-                  <th className="pb-3 font-semibold">Prod.</th>
-                  <th className="pb-3 font-semibold">Acc.</th>
-                </tr>
-              </thead>
-              <tbody>
-                {records.sort((a,b) => a.journeyDay - b.journeyDay).map(r => (
-                  <tr key={r.journeyDay} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 cursor-pointer transition-colors" onClick={() => setSelectedDay(r.journeyDay)}>
-                    <td className="py-3 font-medium text-slate-900">Day {r.journeyDay}</td>
-                    <td className="py-3 text-slate-600">{r.actualUnits ?? '-'}</td>
-                    <td className="py-3 text-slate-600">{r.accuracyPercentage != null ? `${r.accuracyPercentage}%` : (r.actualUnits && r.errorCount ? `${Math.max(0, ((r.actualUnits - r.errorCount) / r.actualUnits) * 100).toFixed(1)}%` : '-')}</td>
+            <div className="max-h-60 overflow-y-auto">
+              <table className="w-full text-xs text-left">
+                <thead>
+                  <tr className="text-slate-400 border-b border-slate-100 pb-2">
+                    <th className="pb-2 font-semibold">Day</th>
+                    <th className="pb-2 font-semibold">Units</th>
+                    <th className="pb-2 font-semibold">Errors</th>
+                    <th className="pb-2 font-semibold">Acc%</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {records.sort((a,b) => a.journeyDay - b.journeyDay).map(r => (
+                    <tr 
+                      key={r.journeyDay} 
+                      className={`hover:bg-slate-50 cursor-pointer transition-colors ${selectedDay === r.journeyDay ? 'bg-indigo-50/60 font-semibold' : ''}`} 
+                      onClick={() => setSelectedDay(r.journeyDay)}
+                    >
+                      <td className="py-2 text-slate-900">Day {r.journeyDay}</td>
+                      <td className="py-2 text-slate-700">{r.actualUnits ?? '-'}</td>
+                      <td className="py-2 text-slate-700">{r.errorCount ?? 0}</td>
+                      <td className="py-2 text-slate-700">
+                        {r.accuracyPercentage != null 
+                          ? `${r.accuracyPercentage}%` 
+                          : (r.actualUnits ? `${Math.max(0, ((r.actualUnits - (r.errorCount || 0)) / r.actualUnits) * 100).toFixed(0)}%` : '-')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>
 
-      {/* RIGHT COLUMN - DATA ENTRY */}
-      <div className="flex-1 flex flex-col gap-6 lg:gap-8 min-w-0">
+      {/* RIGHT COLUMN - DATA ENTRY & LIVE POPULATION */}
+      <div className="flex-1 flex flex-col gap-6 min-w-0">
         
         {/* PRE-FEED HISTORY BLOCK */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 sm:p-6 md:p-8 lg:p-10">
-          <div className="border-b border-slate-100 pb-5 sm:pb-6 mb-5 sm:mb-6">
-            <h2 className="text-xl font-semibold tracking-tight text-slate-900">Pre-Feed History</h2>
-            <p className="text-sm text-slate-500 mt-1">Deterministically generate historical journey evidence for Dean laboratory testing.</p>
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-xs p-5 sm:p-6">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+            <div>
+              <h2 className="text-base font-semibold tracking-tight text-slate-900 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-indigo-600" />
+                Pre-Feed Historical Evidence
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">Quickly populate days with realistic warehouse shifts.</p>
+            </div>
           </div>
           
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-4 sm:gap-6">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
             <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-900 mb-2">Days of History</label>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">Days to Populate</label>
               <select 
                 value={prefeedDays} 
                 onChange={e => setPrefeedDays(Number(e.target.value))}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all"
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 transition-all font-medium"
               >
                 {[1, 2, 3, 5, 7, 10].map(d => (
-                  <option key={d} value={d}>{d} Day{d > 1 ? 's' : ''}</option>
+                  <option key={d} value={d}>{d} Day{d > 1 ? 's' : ''} (Day 0 to {d-1})</option>
                 ))}
               </select>
             </div>
             
             <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-900 mb-2">Complexity</label>
+              <label className="block text-xs font-medium text-slate-700 mb-1.5">Pattern / Complexity</label>
               <select 
                 value={prefeedComplexity} 
                 onChange={e => setPrefeedComplexity(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all"
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 transition-all font-medium"
               >
                 {['Low', 'Medium', 'High', 'Very High'].map(c => (
-                  <option key={c} value={c}>{c}</option>
+                  <option key={c} value={c}>{c} Complexity</option>
                 ))}
               </select>
             </div>
 
             <button 
               type="button"
+              id="btn-prefeed-generate"
               onClick={handlePrefeed}
               disabled={isPrefeeding}
-              className="w-full sm:w-auto px-6 py-3 sm:py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 transition-all disabled:opacity-50"
+              className="w-full sm:w-auto px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-xs sm:text-sm font-semibold hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 shadow-xs flex items-center justify-center gap-2"
             >
-              {isPrefeeding ? 'Generating...' : 'Pre-Feed Data'}
+              <Sparkles className="w-4 h-4" />
+              <span>{isPrefeeding ? 'Populating...' : 'Populate Days'}</span>
             </button>
           </div>
         </div>
 
-        {/* LEARNER STATE READ-ONLY BLOCK */}
-        {learnerState && (
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl shadow-sm p-5 sm:p-6 md:p-8 lg:p-10">
-             <div className="border-b border-slate-200 pb-5 mb-5 flex justify-between items-center">
-              <div>
-                <h2 className="text-xl font-semibold tracking-tight text-slate-900">Learner State</h2>
-                <p className="text-sm text-slate-500 mt-1">Day {selectedDay} — Structured representation of canonical evidence</p>
+        {/* LIVE POPULATION SUMMARY (Updates INSTANTLY as user changes numbers) */}
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-xs p-5 sm:p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <h3 className="text-sm font-bold text-slate-900">Day {selectedDay} Live Calculations & Metrics</h3>
               </div>
-              <span className="text-xs bg-slate-200 text-slate-700 px-3 py-1 rounded-md font-medium tracking-wide uppercase">Read Only</span>
+              <p className="text-xs text-slate-500">Instant evaluation feedback based on the numbers entered below</p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Performance</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between border-b border-slate-50 pb-1">
-                    <span className="text-slate-500">Productivity</span>
-                    <span className="font-medium text-slate-900">{learnerState.performance.productivity_actual ?? '-'} / {learnerState.performance.productivity_target ?? '-'} {learnerState.performance.productivity_unit ?? ''}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-50 pb-1">
-                    <span className="text-slate-500">Trend</span>
-                    <span className="font-medium text-slate-900 capitalize">{learnerState.trend.replace('_', ' ')}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Accuracy</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between border-b border-slate-50 pb-1">
-                    <span className="text-slate-500">Accuracy Score</span>
-                    <span className="font-medium text-slate-900">{learnerState.accuracy.accuracy_actual ?? '-'}% / {learnerState.accuracy.accuracy_target ?? '-'}%</span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-50 pb-1">
-                    <span className="text-slate-500">Errors</span>
-                    <span className="font-medium text-slate-900">{learnerState.accuracy.error_count ?? '-'}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Capability</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between border-b border-slate-50 pb-1">
-                    <span className="text-slate-500">Proficiency</span>
-                    <span className="font-medium text-slate-900">{learnerState.capability.task_proficiency ?? '-'}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-50 pb-1">
-                    <span className="text-slate-500">Assessment</span>
-                    <span className="font-medium text-slate-900">{learnerState.capability.assessment ?? '-'}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Attendance</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between border-b border-slate-50 pb-1">
-                    <span className="text-slate-500">Status</span>
-                    <span className="font-medium text-slate-900">{learnerState.attendance.attendance_status ?? learnerState.attendance.shift_status ?? '-'}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-50 pb-1">
-                    <span className="text-slate-500">Late (min)</span>
-                    <span className="font-medium text-slate-900">{learnerState.attendance.late_minutes ?? '-'}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Support</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between border-b border-slate-50 pb-1">
-                    <span className="text-slate-500">Help Requests</span>
-                    <span className="font-medium text-slate-900">{learnerState.support.help_requests ?? '-'}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-50 pb-1">
-                    <span className="text-slate-500">Escalations</span>
-                    <span className="font-medium text-slate-900">{learnerState.support.escalation_count ?? '-'}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Environment</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between border-b border-slate-50 pb-1">
-                    <span className="text-slate-500">Tool Status</span>
-                    <span className="font-medium text-slate-900">{learnerState.environment.tool_status ?? '-'}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-50 pb-1">
-                    <span className="text-slate-500">Workload</span>
-                    <span className="font-medium text-slate-900">{learnerState.environment.workload_condition ?? '-'}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm md:col-span-2 lg:col-span-3">
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Evidence Quality</h3>
-                <div className="flex flex-col sm:flex-row gap-6 text-sm">
-                  <div className="flex-1">
-                    <span className="text-slate-500 block mb-1">Historical Days</span>
-                    <span className="font-medium text-slate-900">{learnerState.evidence_quality.historical_days_available}</span>
-                  </div>
-                  <div className="flex-1">
-                    <span className="text-slate-500 block mb-1">Missing Evidence</span>
-                    <span className="font-medium text-slate-900">{learnerState.evidence_quality.missing_fields_count} fields</span>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        )}
-
-        {/* DAY EVIDENCE ENTRY */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
-          <form onSubmit={handleSave} className="p-5 sm:p-6 md:p-8 lg:p-10">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0 mb-8 sm:mb-10 pb-5 sm:pb-6 border-b border-slate-100">
-              <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-slate-900">Day {selectedDay} Evidence</h2>
-              {isPopulated(selectedDay) && (
-                <span className="text-xs bg-slate-100 text-slate-700 px-3 py-1 rounded-md font-medium tracking-wide uppercase">Saved</span>
-              )}
-            </div>
-
-          <div className="space-y-4 mb-8">
-            <ExpandableSection title="Section A — Work" isActive={activeSection === 'A'} onToggle={() => setActiveSection(activeSection === 'A' ? '' : 'A')}>
-              <Input label="Task Type" type="text" value={formData.taskType} onChange={v => setFormData({...formData, taskType: v})} />
-              <Input label="Expected Units" type="number" min={0} value={formData.expectedUnits} onChange={v => setFormData({...formData, expectedUnits: v ? Number(v) : undefined})} />
-              <Input label="Actual Units" type="number" min={0} targetKey="actualUnits" value={formData.actualUnits} onChange={v => setFormData({...formData, actualUnits: v ? Number(v) : undefined})} />
-              <Input label="Time Taken" type="number" min={0} targetKey="timeTakenMinutes" value={formData.timeTakenMinutes} onChange={v => setFormData({...formData, timeTakenMinutes: v ? Number(v) : undefined})} />
-              <Select label="Shift Status" options={['', 'Present', 'Late', 'Absent', 'Partial', 'Not Available']} value={formData.shiftStatus} onChange={v => setFormData({...formData, shiftStatus: v})} />
-            </ExpandableSection>
-
-            <ExpandableSection title="Section B — Accuracy" isActive={activeSection === 'B'} onToggle={() => setActiveSection(activeSection === 'B' ? '' : 'B')}>
-              <Input label="Error Count" type="number" min={0} targetKey="errorCount" value={formData.errorCount} onChange={v => setFormData({...formData, errorCount: v ? Number(v) : undefined})} />
-              <div className="flex flex-col gap-1.5">
-                <div className="flex justify-between items-baseline text-sm">
-                  <label className="text-slate-900 font-medium">Accuracy %</label>
-                  <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Target: {LAB_TARGETS.accuracyPercentage.operator} {LAB_TARGETS.accuracyPercentage.target}{LAB_TARGETS.accuracyPercentage.unit}</span>
-                </div>
-                {derivedAccuracy ? (
-                  <div className="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 font-medium tracking-wide">
-                    Calculated: {derivedAccuracy}%
-                  </div>
-                ) : (
-                  <input 
-                    type="number" min={0} max={100} step="0.1"
-                    value={formData.accuracyPercentage || ''} 
-                    onChange={e => setFormData({...formData, accuracyPercentage: e.target.value ? Number(e.target.value) : undefined})} 
-                    className="px-4 py-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all placeholder:text-slate-400"
-                    placeholder="Enter actual"
-                  />
-                )}
-              </div>
-            </ExpandableSection>
-
-            <ExpandableSection title="Section C — Attendance" isActive={activeSection === 'C'} onToggle={() => setActiveSection(activeSection === 'C' ? '' : 'C')}>
-              <Select label="Attendance Status" options={['', 'Present', 'Late', 'Absent', 'Partial', 'Not Available']} value={formData.attendanceStatus} onChange={v => setFormData({...formData, attendanceStatus: v})} />
-              <Input label="Late Minutes" type="number" min={0} value={formData.lateMinutes} onChange={v => setFormData({...formData, lateMinutes: v ? Number(v) : undefined})} />
-              <Select label="Shift Completed" options={['', 'Yes', 'No', 'Not Available']} value={formData.shiftCompleted} onChange={v => setFormData({...formData, shiftCompleted: v})} />
-            </ExpandableSection>
-
-            <ExpandableSection title="Section D — Skill / Learning" isActive={activeSection === 'D'} onToggle={() => setActiveSection(activeSection === 'D' ? '' : 'D')}>
-              <Select label="Task Proficiency" options={['', 'Low', 'Developing', 'Competent', 'Strong', 'Not Available']} value={formData.taskProficiency} onChange={v => setFormData({...formData, taskProficiency: v})} />
-              <Input label="Assessment Score" type="number" min={0} max={100} targetKey="assessmentScore" value={formData.assessmentScore} onChange={v => setFormData({...formData, assessmentScore: v ? Number(v) : undefined})} />
-              <Select label="Training Status" options={['', 'Completed', 'Not Completed', 'In Progress', 'Not Available']} value={formData.trainingStatus} onChange={v => setFormData({...formData, trainingStatus: v})} />
-              <Select label="New Task Exposure" options={['', 'Yes', 'No', 'Not Available']} value={formData.newTaskExposure} onChange={v => setFormData({...formData, newTaskExposure: v})} />
-            </ExpandableSection>
-
-            <ExpandableSection title="Section E — Support" isActive={activeSection === 'E'} onToggle={() => setActiveSection(activeSection === 'E' ? '' : 'E')}>
-              <Input label="Help Requests" type="number" min={0} targetKey="helpRequests" value={formData.helpRequests} onChange={v => setFormData({...formData, helpRequests: v ? Number(v) : undefined})} />
-              <Input label="Escalation Count" type="number" min={0} value={formData.escalationCount} onChange={v => setFormData({...formData, escalationCount: v ? Number(v) : undefined})} />
-              <Select label="Supervisor Assistance" options={['', 'Yes', 'No', 'Not Available']} value={formData.supervisorAssistance} onChange={v => setFormData({...formData, supervisorAssistance: v})} />
-            </ExpandableSection>
-
-            <ExpandableSection title="Section F — Tool / System" isActive={activeSection === 'F'} onToggle={() => setActiveSection(activeSection === 'F' ? '' : 'F')}>
-              <Select label="Tool Status" options={['', 'Normal', 'Intermittent', 'Failed', 'Not Available']} value={formData.toolStatus} onChange={v => setFormData({...formData, toolStatus: v})} />
-              <Input label="Tool Issue" type="text" value={formData.toolIssue} onChange={v => setFormData({...formData, toolIssue: v})} />
-              <Input label="Downtime (mins)" type="number" min={0} targetKey="downtimeMinutes" value={formData.downtimeMinutes} onChange={v => setFormData({...formData, downtimeMinutes: v ? Number(v) : undefined})} />
-            </ExpandableSection>
-
-            <ExpandableSection title="Section G — Environment" isActive={activeSection === 'G'} onToggle={() => setActiveSection(activeSection === 'G' ? '' : 'G')}>
-              <Select label="Workload Condition" options={['', 'Low', 'Normal', 'High', 'Very High', 'Not Available']} value={formData.workloadCondition} onChange={v => setFormData({...formData, workloadCondition: v})} />
-              <Input label="Congestion Issue" type="text" value={formData.congestionIssue} onChange={v => setFormData({...formData, congestionIssue: v})} />
-              <Input label="Environment Issue" type="text" value={formData.environmentIssue} onChange={v => setFormData({...formData, environmentIssue: v})} />
-            </ExpandableSection>
-
-            <ExpandableSection title="Section H — Human Observation" isActive={activeSection === 'H'} onToggle={() => setActiveSection(activeSection === 'H' ? '' : 'H')}>
-              <TextArea label="Supervisor Observation" value={formData.supervisorObservation} onChange={v => setFormData({...formData, supervisorObservation: v})} />
-              <TextArea label="Behavior Observation" value={formData.behaviorObservation} onChange={v => setFormData({...formData, behaviorObservation: v})} />
-              <TextArea label="Communication Observation" value={formData.communicationObservation} onChange={v => setFormData({...formData, communicationObservation: v})} />
-            </ExpandableSection>
-          </div>
-
-          <div className="mt-8 border-t border-slate-200 bg-slate-50 -mx-5 sm:-mx-6 md:-mx-8 lg:-mx-10 -mb-5 sm:-mb-6 md:-mb-8 lg:-mb-10 p-5 sm:p-6 md:p-8 lg:p-10 rounded-b-2xl flex flex-col-reverse sm:flex-row justify-between items-center gap-4">
-            <button 
-              type="button" 
-              onClick={handleClearDay}
-              disabled={isSaving}
-              className="w-full sm:w-auto py-3 sm:py-2 px-4 -ml-4 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 sm:hover:bg-transparent rounded-lg font-medium transition-colors disabled:opacity-50"
-            >
-              Clear Day {selectedDay}
-            </button>
-            <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto justify-end">
-              {saveStatus === 'success' && saveMessage && (
-                <span className="text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm">
-                  <svg className="w-4 h-4 text-emerald-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  {saveMessage}
-                </span>
-              )}
-              {saveStatus === 'error' && saveMessage && (
-                <span className="text-sm font-medium text-red-700 bg-red-50 border border-red-200 px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm">
-                  <svg className="w-4 h-4 text-red-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  {saveMessage}
-                </span>
-              )}
-              <button 
-                type="submit"
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleSave()}
                 disabled={isSaving}
-                className="w-full sm:w-auto px-6 py-3 sm:py-2.5 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center gap-2"
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
               >
-                {isSaving ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Saving...
-                  </>
-                ) : (
-                  `Save Day ${selectedDay}`
-                )}
+                <Save className="w-3.5 h-3.5" />
+                <span>{isSaving ? 'Saving...' : `Save Day ${selectedDay}`}</span>
               </button>
             </div>
           </div>
-        </form>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Pick Velocity</span>
+              <div className="text-lg font-bold text-slate-900">
+                {liveStats.velocity !== null ? `${liveStats.velocity} /hr` : '—'}
+              </div>
+              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md inline-block mt-1 ${
+                liveStats.prodTargetMet === true ? 'bg-emerald-100 text-emerald-800' :
+                liveStats.prodTargetMet === false ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-600'
+              }`}>
+                {liveStats.prodTargetMet === true ? '✓ Target Met (≥60)' : liveStats.prodTargetMet === false ? '⚠ Behind Target (<60)' : 'Awaiting units'}
+              </span>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Calculated Accuracy</span>
+              <div className="text-lg font-bold text-slate-900">
+                {liveStats.accuracy !== null ? `${liveStats.accuracy}%` : '—'}
+              </div>
+              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md inline-block mt-1 ${
+                liveStats.accTargetMet === true ? 'bg-emerald-100 text-emerald-800' :
+                liveStats.accTargetMet === false ? 'bg-red-100 text-red-800' : 'bg-slate-200 text-slate-600'
+              }`}>
+                {liveStats.accTargetMet === true ? '✓ Target Met (≥98%)' : liveStats.accTargetMet === false ? '✗ Below Target (<98%)' : 'Awaiting input'}
+              </span>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Errors Logged</span>
+              <div className="text-lg font-bold text-slate-900">
+                {liveStats.errors}
+              </div>
+              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md inline-block mt-1 ${
+                liveStats.errTargetMet ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+              }`}>
+                {liveStats.errTargetMet ? '✓ ≤ 2 Errors' : '✗ High Errors (>2)'}
+              </span>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Assessment</span>
+              <div className="text-lg font-bold text-slate-900">
+                {formData.assessmentScore !== undefined && formData.assessmentScore !== null ? `${formData.assessmentScore}%` : '—'}
+              </div>
+              <span className="text-[10px] font-medium bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded-md inline-block mt-1">
+                Proficiency: {formData.taskProficiency || 'Developing'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* DAY EVIDENCE FORM */}
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-xs">
+          <form onSubmit={handleSave} className="p-5 sm:p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-slate-100">
+              <div>
+                <h2 className="text-xl font-bold tracking-tight text-slate-900">Day {selectedDay} Evidence Inputs</h2>
+                <p className="text-xs text-slate-500">Edit fields below to populate canonical signals</p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => toggleAllSections(true)}
+                  className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  Expand All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleAllSections(false)}
+                  className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  Collapse All
+                </button>
+                {isPopulated(selectedDay) && (
+                  <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-md font-semibold flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Saved
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {/* Section A - Work */}
+              <AccordionSection 
+                title="Section A — Work & Productivity" 
+                isOpen={expandedSections.A} 
+                onToggle={() => toggleSection('A')}
+                badge={formData.actualUnits ? `${formData.actualUnits} units` : undefined}
+              >
+                <Input 
+                  label="Task Type" 
+                  type="text" 
+                  value={formData.taskType} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, taskType: v }))} 
+                />
+                <Input 
+                  label="Expected Units" 
+                  type="number" 
+                  min={0} 
+                  value={formData.expectedUnits} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, expectedUnits: v !== '' ? Number(v) : undefined }))} 
+                />
+                <Input 
+                  label="Actual Units" 
+                  type="number" 
+                  min={0} 
+                  targetKey="actualUnits" 
+                  value={formData.actualUnits} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, actualUnits: v !== '' ? Number(v) : undefined }))} 
+                />
+                <Input 
+                  label="Time Taken (Minutes)" 
+                  type="number" 
+                  min={0} 
+                  targetKey="timeTakenMinutes" 
+                  value={formData.timeTakenMinutes} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, timeTakenMinutes: v !== '' ? Number(v) : undefined }))} 
+                />
+                <Select 
+                  label="Shift Status" 
+                  options={['Present', 'Late', 'Absent', 'Partial', 'Not Available']} 
+                  value={formData.shiftStatus} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, shiftStatus: v }))} 
+                />
+              </AccordionSection>
+
+              {/* Section B - Accuracy */}
+              <AccordionSection 
+                title="Section B — Quality & Accuracy" 
+                isOpen={expandedSections.B} 
+                onToggle={() => toggleSection('B')}
+                badge={liveStats.accuracy !== null ? `${liveStats.accuracy}%` : undefined}
+              >
+                <Input 
+                  label="Error Count" 
+                  type="number" 
+                  min={0} 
+                  targetKey="errorCount" 
+                  value={formData.errorCount} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, errorCount: v !== '' ? Number(v) : undefined }))} 
+                />
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex justify-between items-baseline text-xs">
+                    <label className="text-slate-900 font-medium">Accuracy % (Auto-calculated)</label>
+                    <span className="text-[11px] font-medium text-slate-400">Target: ≥98%</span>
+                  </div>
+                  <input 
+                    type="number" 
+                    min={0} 
+                    max={100} 
+                    step="0.1"
+                    value={formData.accuracyPercentage !== undefined && formData.accuracyPercentage !== null ? formData.accuracyPercentage : (liveStats.accuracy !== null ? liveStats.accuracy : '')} 
+                    onChange={e => setFormData((prev: any) => ({ ...prev, accuracyPercentage: e.target.value !== '' ? Number(e.target.value) : undefined }))} 
+                    className="min-h-[44px] px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 transition-all font-medium"
+                    placeholder="Enter accuracy %"
+                  />
+                </div>
+              </AccordionSection>
+
+              {/* Section C - Attendance */}
+              <AccordionSection 
+                title="Section C — Attendance & Punctuality" 
+                isOpen={expandedSections.C} 
+                onToggle={() => toggleSection('C')}
+              >
+                <Select 
+                  label="Attendance Status" 
+                  options={['Present', 'Late', 'Absent', 'Partial', 'Not Available']} 
+                  value={formData.attendanceStatus} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, attendanceStatus: v }))} 
+                />
+                <Input 
+                  label="Late Minutes" 
+                  type="number" 
+                  min={0} 
+                  value={formData.lateMinutes} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, lateMinutes: v !== '' ? Number(v) : undefined }))} 
+                />
+                <Select 
+                  label="Shift Completed" 
+                  options={['Yes', 'No', 'Not Available']} 
+                  value={formData.shiftCompleted} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, shiftCompleted: v }))} 
+                />
+              </AccordionSection>
+
+              {/* Section D - Skill & Learning */}
+              <AccordionSection 
+                title="Section D — Skill & Learning" 
+                isOpen={expandedSections.D} 
+                onToggle={() => toggleSection('D')}
+              >
+                <Select 
+                  label="Task Proficiency" 
+                  options={['Low', 'Developing', 'Competent', 'Strong', 'Not Available']} 
+                  value={formData.taskProficiency} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, taskProficiency: v }))} 
+                />
+                <Input 
+                  label="Assessment Score (%)" 
+                  type="number" 
+                  min={0} 
+                  max={100} 
+                  targetKey="assessmentScore" 
+                  value={formData.assessmentScore} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, assessmentScore: v !== '' ? Number(v) : undefined }))} 
+                />
+                <Select 
+                  label="Training Status" 
+                  options={['Completed', 'Not Completed', 'In Progress', 'Not Available']} 
+                  value={formData.trainingStatus} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, trainingStatus: v }))} 
+                />
+                <Select 
+                  label="New Task Exposure" 
+                  options={['No', 'Yes', 'Not Available']} 
+                  value={formData.newTaskExposure} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, newTaskExposure: v }))} 
+                />
+              </AccordionSection>
+
+              {/* Section E - Support */}
+              <AccordionSection 
+                title="Section E — Support & Escalations" 
+                isOpen={expandedSections.E} 
+                onToggle={() => toggleSection('E')}
+              >
+                <Input 
+                  label="Help Requests" 
+                  type="number" 
+                  min={0} 
+                  targetKey="helpRequests" 
+                  value={formData.helpRequests} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, helpRequests: v !== '' ? Number(v) : undefined }))} 
+                />
+                <Input 
+                  label="Escalation Count" 
+                  type="number" 
+                  min={0} 
+                  value={formData.escalationCount} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, escalationCount: v !== '' ? Number(v) : undefined }))} 
+                />
+                <Select 
+                  label="Supervisor Assistance" 
+                  options={['No', 'Yes', 'Not Available']} 
+                  value={formData.supervisorAssistance} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, supervisorAssistance: v }))} 
+                />
+              </AccordionSection>
+
+              {/* Section F - Tool & System */}
+              <AccordionSection 
+                title="Section F — Tool & System Downtime" 
+                isOpen={expandedSections.F} 
+                onToggle={() => toggleSection('F')}
+              >
+                <Select 
+                  label="Tool Status" 
+                  options={['Normal', 'Intermittent', 'Failed', 'Not Available']} 
+                  value={formData.toolStatus} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, toolStatus: v }))} 
+                />
+                <Input 
+                  label="Tool Issue Details" 
+                  type="text" 
+                  value={formData.toolIssue} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, toolIssue: v }))} 
+                />
+                <Input 
+                  label="Downtime (Minutes)" 
+                  type="number" 
+                  min={0} 
+                  targetKey="downtimeMinutes" 
+                  value={formData.downtimeMinutes} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, downtimeMinutes: v !== '' ? Number(v) : undefined }))} 
+                />
+              </AccordionSection>
+
+              {/* Section G - Environment */}
+              <AccordionSection 
+                title="Section G — Environment & Workload" 
+                isOpen={expandedSections.G} 
+                onToggle={() => toggleSection('G')}
+              >
+                <Select 
+                  label="Workload Condition" 
+                  options={['Normal', 'Low', 'High', 'Very High', 'Not Available']} 
+                  value={formData.workloadCondition} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, workloadCondition: v }))} 
+                />
+                <Input 
+                  label="Congestion Issue" 
+                  type="text" 
+                  value={formData.congestionIssue} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, congestionIssue: v }))} 
+                />
+                <Input 
+                  label="Environment Issue" 
+                  type="text" 
+                  value={formData.environmentIssue} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, environmentIssue: v }))} 
+                />
+              </AccordionSection>
+
+              {/* Section H - Observation */}
+              <AccordionSection 
+                title="Section H — Human Observation Notes" 
+                isOpen={expandedSections.H} 
+                onToggle={() => toggleSection('H')}
+              >
+                <TextArea 
+                  label="Supervisor Observation" 
+                  value={formData.supervisorObservation} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, supervisorObservation: v }))} 
+                />
+                <TextArea 
+                  label="Behavior Observation" 
+                  value={formData.behaviorObservation} 
+                  onChange={v => setFormData((prev: any) => ({ ...prev, behaviorObservation: v }))} 
+                />
+              </AccordionSection>
+            </div>
+
+            {/* Bottom Form Actions & Status */}
+            <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-3">
+              <button 
+                type="button" 
+                onClick={handleClearDay}
+                disabled={isSaving}
+                className="w-full sm:w-auto py-2.5 px-4 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded-xl font-medium transition-colors flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Clear Day {selectedDay}</span>
+              </button>
+
+              <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto justify-end">
+                {saveStatus === 'success' && saveMessage && (
+                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-xs">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{saveMessage}</span>
+                  </span>
+                )}
+                {saveStatus === 'error' && saveMessage && (
+                  <span className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-xs">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                    <span>{saveMessage}</span>
+                  </span>
+                )}
+                <button 
+                  type="submit"
+                  id="btn-save-day"
+                  disabled={isSaving}
+                  className="w-full sm:w-auto px-6 py-3 bg-slate-900 text-white rounded-xl text-xs sm:text-sm font-semibold hover:bg-slate-800 active:scale-95 disabled:bg-slate-400 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{isSaving ? 'Saving & Broadcasting...' : `Save & Sync Day ${selectedDay}`}</span>
+                </button>
+              </div>
+            </div>
+          </form>
         </div>
       </div>
     </div>
   );
 }
 
-function ExpandableSection({ title, isActive, onToggle, children }: { title: string, isActive: boolean, onToggle: () => void, children: React.ReactNode }) {
+function AccordionSection({ 
+  title, 
+  isOpen, 
+  onToggle, 
+  badge,
+  children 
+}: { 
+  title: string; 
+  isOpen: boolean; 
+  onToggle: () => void; 
+  badge?: string;
+  children: React.ReactNode; 
+}) {
   return (
-    <div className={`border rounded-xl transition-all overflow-hidden ${isActive ? 'border-slate-300 shadow-xs bg-white' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+    <div className={`border rounded-xl transition-all overflow-hidden ${isOpen ? 'border-slate-300 shadow-xs bg-white' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
       <button
         type="button"
         onClick={onToggle}
-        className="w-full min-h-[44px] px-4 sm:px-6 py-3.5 bg-slate-50 flex justify-between items-center text-left focus:outline-none hover:bg-slate-100/60 active:bg-slate-100 transition-colors"
+        className="w-full min-h-[44px] px-4 py-3 bg-slate-50/70 flex justify-between items-center text-left focus:outline-none hover:bg-slate-100/60 active:bg-slate-100 transition-colors"
       >
-        <h3 className={`text-xs sm:text-sm font-semibold uppercase tracking-widest ${isActive ? 'text-slate-900' : 'text-slate-500'}`}>
-          {title}
-        </h3>
-        <svg 
-          className={`w-5 h-5 text-slate-400 transform transition-transform duration-200 shrink-0 ${isActive ? 'rotate-180 text-slate-600' : ''}`} 
-          fill="none" 
-          viewBox="0 0 24 24" 
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        <div className="flex items-center gap-2.5">
+          <h3 className={`text-xs font-bold uppercase tracking-wider ${isOpen ? 'text-slate-900' : 'text-slate-600'}`}>
+            {title}
+          </h3>
+          {badge && (
+            <span className="text-[10px] font-semibold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-100">
+              {badge}
+            </span>
+          )}
+        </div>
+        {isOpen ? (
+          <ChevronUp className="w-4 h-4 text-slate-500" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-slate-400" />
+        )}
       </button>
-      {isActive && (
-        <div className="px-4 sm:px-6 py-5 border-t border-slate-100">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+      {isOpen && (
+        <div className="p-4 sm:p-5 border-t border-slate-100">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
             {children}
           </div>
         </div>
@@ -524,55 +827,98 @@ function ExpandableSection({ title, isActive, onToggle, children }: { title: str
   );
 }
 
-function Input({ label, type, value, onChange, min, max, targetKey }: { label: string, type: string, value: any, onChange: (v: string) => void, min?: number, max?: number, targetKey?: keyof typeof LAB_TARGETS }) {
+function Input({ 
+  label, 
+  type, 
+  value, 
+  onChange, 
+  min, 
+  max, 
+  targetKey 
+}: { 
+  label: string; 
+  type: string; 
+  value: any; 
+  onChange: (v: string) => void; 
+  min?: number; 
+  max?: number; 
+  targetKey?: keyof typeof LAB_TARGETS; 
+}) {
   const target = targetKey ? LAB_TARGETS[targetKey] : null;
+  // Robust display value that displays 0 correctly
+  const displayVal = value !== undefined && value !== null ? value : '';
+
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex justify-between items-baseline text-sm">
-        <label className="text-slate-900 font-medium">{label}</label>
+      <div className="flex justify-between items-baseline text-xs">
+        <label className="text-slate-800 font-medium">{label}</label>
         {target && (
-          <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Target: {target.operator} {target.target} {target.unit}</span>
+          <span className="text-[11px] font-semibold text-slate-400">
+            Target: {target.operator} {target.target}{target.unit}
+          </span>
         )}
       </div>
       <input 
         type={type} 
-        value={value || ''} 
+        value={displayVal} 
         min={min}
         max={max}
         onChange={e => onChange(e.target.value)} 
-        className="min-h-[44px] px-4 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all placeholder:text-slate-400"
-        placeholder="Enter actual"
+        className="min-h-[44px] px-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all placeholder:text-slate-400 font-medium"
+        placeholder="Enter number or value"
       />
     </div>
   );
 }
 
-function Select({ label, options, value, onChange }: { label: string, options: string[], value: any, onChange: (v: string) => void }) {
+function Select({ 
+  label, 
+  options, 
+  value, 
+  onChange 
+}: { 
+  label: string; 
+  options: string[]; 
+  value: any; 
+  onChange: (v: string) => void; 
+}) {
+  const displayVal = value !== undefined && value !== null ? value : '';
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-sm text-slate-900 font-medium">{label}</label>
+      <label className="text-xs text-slate-800 font-medium">{label}</label>
       <select 
-        value={value || ''} 
+        value={displayVal} 
         onChange={e => onChange(e.target.value)} 
-        className="min-h-[44px] px-4 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all"
+        className="min-h-[44px] px-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all font-medium"
       >
+        <option value="">Select option...</option>
         {options.map(o => (
-          <option key={o} value={o}>{o || 'Select...'}</option>
+          <option key={o} value={o}>{o}</option>
         ))}
       </select>
     </div>
   );
 }
 
-function TextArea({ label, value, onChange }: { label: string, value: any, onChange: (v: string) => void }) {
+function TextArea({ 
+  label, 
+  value, 
+  onChange 
+}: { 
+  label: string; 
+  value: any; 
+  onChange: (v: string) => void; 
+}) {
+  const displayVal = value !== undefined && value !== null ? value : '';
   return (
     <div className="flex flex-col gap-1.5 col-span-1 md:col-span-2">
-      <label className="text-sm text-slate-900 font-medium">{label}</label>
+      <label className="text-xs text-slate-800 font-medium">{label}</label>
       <textarea 
-        value={value || ''} 
+        value={displayVal} 
         onChange={e => onChange(e.target.value)} 
         rows={2}
-        className="min-h-[44px] px-4 py-3 bg-slate-50/50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all placeholder:text-slate-400"
+        className="min-h-[44px] px-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all placeholder:text-slate-400 font-medium"
+        placeholder="Observation details..."
       />
     </div>
   );
