@@ -39,11 +39,20 @@ export interface HelpRequest {
   timestamp: string;
 }
 
+export interface ActionOutcome {
+  improved: 'yes' | 'partial' | 'no';
+  notes?: string;
+  action_type?: string;
+  supervisor_id?: string;
+  timestamp?: string;
+}
+
 export interface LabDayRecord {
   employeeId: string;
   journeyDay: number; // 0 to 10
   updatedAt: string;
   sourceType?: string;
+  actionOutcome?: ActionOutcome;
 
   // Section A - Work
   taskType?: string;

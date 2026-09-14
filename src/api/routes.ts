@@ -97,9 +97,32 @@ export async function getEvidenceHandler(req: Request, res: Response) {
       evidence = evidence.slice(0, limit);
     }
 
+    // Map to normalized contract format supporting both root attributes and canonical schema
+    const formattedData = evidence.map((e: any) => ({
+      evidence_id: e.evidence_id,
+      employee_id: e.subject_id,
+      subject_id: e.subject_id,
+      subject_type: e.subject_type,
+      journey_day: e.context?.journey_day !== undefined ? e.context.journey_day : 0,
+      evidence_type: e.type,
+      type: e.type,
+      category: e.category,
+      evidence_kind: e.evidence_kind,
+      value: e.value,
+      target: e.context?.target !== undefined ? e.context.target : (e.type === 'pick_velocity' ? 60.0 : undefined),
+      accuracy: e.context?.accuracy !== undefined ? e.context.accuracy : (e.type === 'accuracy_percentage' ? e.value : undefined),
+      unit: e.unit,
+      timestamp: e.timestamp,
+      source_system: e.source_system,
+      confidence_score: e.confidence_score,
+      context: e.context
+    }));
+
+    res.setHeader('Content-Type', 'application/json');
     res.json({
-      data: evidence,
-      count: evidence.length,
+      success: true,
+      data: formattedData,
+      count: formattedData.length,
       meta: {
         since_timestamp: sinceTimestamp || null,
         limit: limit || null,
@@ -318,6 +341,144 @@ export function setupRoutes(app: Express) {
   // --- EXTERNAL INTEGRATION BOUNDARY ---
 
   app.get('/api/v1/evidence', getEvidenceHandler);
+
+  // Idempotent Evidence & Action Outcome Ingestion Endpoint
+  app.post('/api/v1/evidence', async (req: Request, res: Response) => {
+    try {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+
+      const body = req.body;
+      if (!body) {
+        return res.status(400).json({ error: 'Request body required' });
+      }
+
+      // Check if incoming payload is an action_outcome
+      const employeeId = body.employee_id || body.employeeId || body.subject_id;
+      const journeyDayRaw = body.journey_day !== undefined ? body.journey_day : (body.journeyDay !== undefined ? body.journeyDay : body.context?.journey_day);
+      const journeyDay = journeyDayRaw !== undefined ? parseInt(journeyDayRaw, 10) : 0;
+      const evidenceType = body.evidence_type || body.type;
+
+      if (!employeeId) {
+        return res.status(400).json({ error: 'employee_id / subject_id is required' });
+      }
+
+      if (evidenceType === 'action_outcome' || body.canonicalEvidence?.type === 'action_outcome' || body.value === 'yes' || body.value === 'partial' || body.value === 'no' || body.improved !== undefined) {
+        const valueRaw = body.value || body.improved || body.canonicalEvidence?.value || 'yes';
+        const value = (valueRaw === 'yes' || valueRaw === 'partial' || valueRaw === 'no') ? valueRaw : 'yes';
+        const notes = body.notes || body.context?.notes || body.description || '';
+        const actionType = body.action_type || body.actionType || body.context?.action_type || 'supervisor_checkin';
+        const supervisorId = body.supervisor_id || body.supervisorId || body.context?.supervisor_id || 'EMP-999';
+
+        const { record, adjustedFutureDays } = orgStore.recordActionOutcome(employeeId, journeyDay, {
+          improved: value as 'yes' | 'partial' | 'no',
+          notes,
+          action_type: actionType,
+          supervisor_id: supervisorId,
+          timestamp: body.timestamp || new Date().toISOString()
+        });
+
+        // Broadcast to Firestore
+        const normalized = normalizeLabRecord(record);
+        for (const item of normalized) {
+          broadcastShiftToCloud(item).catch(e => console.warn('Broadcast action_outcome failed:', e));
+        }
+
+        // Also broadcast updated future days if any were ramped
+        if (adjustedFutureDays > 0) {
+          syncAllEvidenceToFirestore().catch(e => console.warn('Broadcast adjusted days failed:', e));
+        }
+
+        return res.json({
+          success: true,
+          action: 'action_outcome_recorded',
+          employee_id: employeeId,
+          journey_day: journeyDay,
+          value,
+          adjusted_future_days: adjustedFutureDays,
+          record
+        });
+      }
+
+      // Generic evidence ingestion fallback (idempotent upsert)
+      const genericRecord = orgStore.labRecords.find(r => r.employeeId === employeeId && r.journeyDay === journeyDay);
+      if (genericRecord) {
+        genericRecord.updatedAt = new Date().toISOString();
+        if (body.supervisorObservation || body.notes) genericRecord.supervisorObservation = body.supervisorObservation || body.notes;
+        if (body.actualUnits !== undefined) genericRecord.actualUnits = Number(body.actualUnits);
+        if (body.errorCount !== undefined) genericRecord.errorCount = Number(body.errorCount);
+        orgStore.upsertLabRecord(genericRecord);
+      }
+      await orgStore.save();
+      syncAllEvidenceToFirestore().catch(e => console.warn('Broadcast generic evidence failed:', e));
+
+      return res.json({
+        success: true,
+        action: 'evidence_ingested',
+        employee_id: employeeId,
+        journey_day: journeyDay
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Explicit Outcomes Ingestion Endpoint (POST /api/v1/outcomes)
+  app.post('/api/v1/outcomes', async (req: Request, res: Response) => {
+    try {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+      res.setHeader('Content-Type', 'application/json');
+
+      const body = req.body;
+      if (!body) {
+        return res.status(400).json({ error: 'Request body required' });
+      }
+
+      const employeeId = body.employee_id || body.employeeId || body.subject_id;
+      const journeyDayRaw = body.journey_day !== undefined ? body.journey_day : (body.journeyDay !== undefined ? body.journeyDay : 0);
+      const journeyDay = parseInt(journeyDayRaw, 10);
+      const improved = (body.improved || body.value || 'yes') as 'yes' | 'partial' | 'no';
+      const actionId = body.action_id || body.actionId || body.action_type || 'supervisor_checkin';
+      const notes = body.notes || body.description || '';
+
+      if (!employeeId) {
+        return res.status(400).json({ error: 'employee_id is required' });
+      }
+
+      const { record, adjustedFutureDays } = orgStore.recordActionOutcome(employeeId, journeyDay, {
+        improved,
+        notes,
+        action_type: actionId,
+        supervisor_id: body.supervisor_id || 'supervisor',
+        timestamp: body.timestamp || new Date().toISOString()
+      });
+
+      // Broadcast to Firestore
+      const normalized = normalizeLabRecord(record);
+      for (const item of normalized) {
+        broadcastShiftToCloud(item).catch(e => console.warn('Broadcast action_outcome failed:', e));
+      }
+
+      if (adjustedFutureDays > 0) {
+        syncAllEvidenceToFirestore().catch(e => console.warn('Broadcast adjusted days failed:', e));
+      }
+
+      return res.json({
+        success: true,
+        employee_id: employeeId,
+        journey_day: journeyDay,
+        improved,
+        action_id: actionId,
+        adjusted_future_days: adjustedFutureDays,
+        message: `Outcome recorded for ${employeeId} Day ${journeyDay}. Future shift telemetry adjusted.`
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   // --- AI-7 DEAN EVALUATION LABORATORY ROUTES ---
 

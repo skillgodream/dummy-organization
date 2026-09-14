@@ -31,7 +31,8 @@ export function EmployeeJourney({ employee, onBack }: { employee: any, onBack: (
     E: false, // Support
     F: false, // Tool
     G: false, // Environment
-    H: false  // Human Observation
+    H: false, // Human Observation
+    I: true   // Action Outcome
   });
 
   const [prefeedDays, setPrefeedDays] = useState<number>(5);
@@ -734,6 +735,59 @@ export function EmployeeJourney({ employee, onBack }: { employee: any, onBack: (
                   value={formData.behaviorObservation} 
                   onChange={v => setFormData((prev: any) => ({ ...prev, behaviorObservation: v }))} 
                 />
+              </AccordionSection>
+
+              {/* Section I - Intervention / Action Outcome */}
+              <AccordionSection 
+                title="Section I — Intervention & Action Outcome" 
+                isOpen={expandedSections.I} 
+                onToggle={() => toggleSection('I')}
+                badge={formData.actionOutcome?.improved ? `Improved: ${formData.actionOutcome.improved}` : undefined}
+              >
+                <div className="flex flex-col gap-3">
+                  <Select 
+                    label="Action Outcome (Improved?)" 
+                    options={['None', 'yes', 'partial', 'no']} 
+                    value={formData.actionOutcome?.improved || 'None'} 
+                    onChange={v => {
+                      if (v === 'None') {
+                        setFormData((prev: any) => ({ ...prev, actionOutcome: undefined }));
+                      } else {
+                        setFormData((prev: any) => ({
+                          ...prev,
+                          actionOutcome: {
+                            ...(prev.actionOutcome || {}),
+                            improved: v
+                          }
+                        }));
+                      }
+                    }} 
+                  />
+                  {formData.actionOutcome?.improved && formData.actionOutcome.improved !== 'None' && (
+                    <>
+                      <Input 
+                        label="Action / Intervention Type" 
+                        type="text" 
+                        value={formData.actionOutcome?.action_type || 'supervisor_checkin'} 
+                        onChange={v => setFormData((prev: any) => ({
+                          ...prev,
+                          actionOutcome: { ...(prev.actionOutcome || {}), action_type: v }
+                        }))} 
+                      />
+                      <TextArea 
+                        label="Intervention Outcome Notes" 
+                        value={formData.actionOutcome?.notes || ''} 
+                        onChange={v => setFormData((prev: any) => ({
+                          ...prev,
+                          actionOutcome: { ...(prev.actionOutcome || {}), notes: v }
+                        }))} 
+                      />
+                      <p className="text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg p-2.5">
+                        💡 When marked as <strong className="font-semibold">improved: &quot;yes&quot;</strong>, the simulator automatically adjusts subsequent days to reflect recovery velocity instead of repeating stagnant failure baselines.
+                      </p>
+                    </>
+                  )}
+                </div>
               </AccordionSection>
             </div>
 

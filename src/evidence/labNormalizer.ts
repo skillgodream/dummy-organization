@@ -110,5 +110,33 @@ export function normalizeLabRecord(record: LabDayRecord): CanonicalEvidence[] {
   if (record.behaviorObservation) addEvidence('learning', 'behavior_note', record.behaviorObservation, 'reported');
   if (record.communicationObservation) addEvidence('support', 'communication_note', record.communicationObservation, 'reported');
 
+  // Section I - Action / Intervention Outcome
+  if (record.actionOutcome) {
+    const outcomeContext: any = {
+      journey_day: record.journeyDay,
+      improved: record.actionOutcome.improved,
+      notes: record.actionOutcome.notes || '',
+      action_type: record.actionOutcome.action_type || 'supervisor_checkin',
+      supervisor_id: record.actionOutcome.supervisor_id || 'supervisor'
+    };
+    if (record.sourceType) {
+      outcomeContext.source_type = record.sourceType;
+    }
+
+    evidenceList.push({
+      evidence_id: `ev_lab_${record.employeeId}_d${record.journeyDay}_action_outcome`,
+      subject_id: record.employeeId,
+      subject_type: 'employee',
+      category: 'learning',
+      type: 'action_outcome',
+      timestamp: record.actionOutcome.timestamp || baseTimestamp,
+      value: record.actionOutcome.improved,
+      source_system: SOURCE_SYSTEM,
+      confidence_score: 1.0,
+      evidence_kind: 'reported',
+      context: outcomeContext
+    });
+  }
+
   return evidenceList;
 }

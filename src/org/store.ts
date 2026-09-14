@@ -162,6 +162,87 @@ export class OrgStore {
     this.save();
   }
 
+  public recordActionOutcome(employeeId: string, journeyDay: number, outcome: { improved: 'yes' | 'partial' | 'no'; notes?: string; action_type?: string; supervisor_id?: string; timestamp?: string }): { record: LabDayRecord; adjustedFutureDays: number } {
+    const existingIndex = this.labRecords.findIndex(r => r.employeeId === employeeId && r.journeyDay === journeyDay);
+    let targetRecord: LabDayRecord;
+
+    if (existingIndex >= 0) {
+      targetRecord = {
+        ...this.labRecords[existingIndex],
+        updatedAt: new Date().toISOString(),
+        actionOutcome: {
+          improved: outcome.improved,
+          notes: outcome.notes || this.labRecords[existingIndex].actionOutcome?.notes || '',
+          action_type: outcome.action_type || this.labRecords[existingIndex].actionOutcome?.action_type || 'supervisor_checkin',
+          supervisor_id: outcome.supervisor_id || this.labRecords[existingIndex].actionOutcome?.supervisor_id || 'supervisor',
+          timestamp: outcome.timestamp || new Date().toISOString()
+        }
+      };
+      this.labRecords[existingIndex] = targetRecord;
+    } else {
+      targetRecord = {
+        employeeId,
+        journeyDay,
+        updatedAt: new Date().toISOString(),
+        sourceType: 'action_outcome_ingest',
+        taskType: 'Standard Pick',
+        expectedUnits: 60,
+        actualUnits: outcome.improved === 'yes' ? 58 : (outcome.improved === 'partial' ? 48 : 36),
+        timeTakenMinutes: 60,
+        shiftStatus: 'Present',
+        errorCount: outcome.improved === 'yes' ? 1 : (outcome.improved === 'partial' ? 3 : 5),
+        accuracyPercentage: outcome.improved === 'yes' ? 98.3 : (outcome.improved === 'partial' ? 93.8 : 86.1),
+        attendanceStatus: 'Present',
+        taskProficiency: outcome.improved === 'yes' ? 'Competent' : 'Developing',
+        trainingStatus: 'Completed',
+        assessmentScore: outcome.improved === 'yes' ? 95 : 80,
+        helpRequests: outcome.improved === 'yes' ? 1 : 3,
+        toolStatus: 'Normal',
+        actionOutcome: {
+          improved: outcome.improved,
+          notes: outcome.notes || '',
+          action_type: outcome.action_type || 'supervisor_checkin',
+          supervisor_id: outcome.supervisor_id || 'supervisor',
+          timestamp: outcome.timestamp || new Date().toISOString()
+        }
+      };
+      this.labRecords.push(targetRecord);
+    }
+
+    // Dynamic recovery propagation: adjust post-intervention shift telemetry for subsequent days
+    let adjustedFutureDays = 0;
+    if (outcome.improved === 'yes' || outcome.improved === 'partial') {
+      const isFull = outcome.improved === 'yes';
+      
+      this.labRecords = this.labRecords.map(r => {
+        if (r.employeeId === employeeId && r.journeyDay > journeyDay) {
+          adjustedFutureDays++;
+          const dayOffset = r.journeyDay - journeyDay;
+          // Ramp velocity upwards to reflect recovery (e.g. 58-64+ UPH) instead of repeating failure baseline
+          const targetUnits = isFull ? Math.min(68, 58 + (dayOffset * 2)) : Math.min(56, 48 + (dayOffset * 1));
+          const targetErrors = isFull ? Math.max(0, Math.min(2, 2 - Math.floor(dayOffset / 2))) : Math.max(1, 3 - Math.floor(dayOffset / 3));
+          const targetAcc = targetUnits > 0 ? parseFloat((((targetUnits - targetErrors) / targetUnits) * 100).toFixed(1)) : 98.0;
+
+          return {
+            ...r,
+            actualUnits: targetUnits,
+            errorCount: targetErrors,
+            accuracyPercentage: targetAcc,
+            taskProficiency: isFull ? 'Competent' : (r.taskProficiency || 'Developing'),
+            toolStatus: 'Normal',
+            toolIssue: '',
+            downtimeMinutes: 0,
+            updatedAt: new Date().toISOString()
+          };
+        }
+        return r;
+      });
+    }
+
+    this.save();
+    return { record: targetRecord, adjustedFutureDays };
+  }
+
   public clearLabRecord(employeeId: string, journeyDay: number) {
     this.labRecords = this.labRecords.filter(r => !(r.employeeId === employeeId && r.journeyDay === journeyDay));
     this.save();
